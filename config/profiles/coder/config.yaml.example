@@ -1,0 +1,117 @@
+# =============================================================================
+# CODER — Profile Config Overlay
+# =============================================================================
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: Main implementation worker. Handles code generation, edits, and shell
+#       execution. Uses the configured backend with a cloud fallback chain.
+#
+# Copy to: $HERMES_HOME/profiles/coder/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override
+# ---------------------------------------------------------------------------
+model:
+  # Fill in your model id (the alias your llama-swap proxy or cloud backend exposes).
+  # Example: qwen3-35b, llama-3.1-8b, claude-opus-4-5
+  default: <YOUR_MODEL_NAME>
+  provider: anthropic
+  base_url: http://127.0.0.1:<PORT>   # your backend; NO /v1 suffix for Anthropic protocol
+  context_length: 131072
+
+  # ---------------------------------------------------------------------------
+  # CLOUD BACKEND — uncomment to use a cloud provider instead of local.
+  #
+  # Replace <CLOUD_MODEL> and <CLOUD_BASE_URL> with your provider's values.
+  # Also set the matching key_env in config/config.yaml.example providers:.
+  #
+  # Launch command (if using model_aliases):
+  #   hermes -m cloud --ignore-user-config chat
+  # ---------------------------------------------------------------------------
+  # default: <CLOUD_MODEL>
+  # provider: anthropic                  # or "openai"
+  # base_url: <CLOUD_BASE_URL>           # e.g. https://api.anthropic.com
+  # context_length: 131072
+
+# ---------------------------------------------------------------------------
+# Fallback chain — override
+# ---------------------------------------------------------------------------
+# When the local model errors or times out on a hard task, fall through to the
+# cloud provider declared in config/config.yaml.example under providers:.
+# Ordered: first entry in the list is tried first.
+fallback_providers:
+  - cloud-fallback
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # Real coding work benefits from medium reasoning. Bump to "high" for gnarly
+  # refactors; lower to "low" for quick edits.
+  reasoning_effort: medium
+  max_turns: 60
+  gateway_timeout: 1800            # Do not lower for long autonomous runs.
+  api_max_retries: 3
+  clarify_timeout: 600
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # KEEP manual until you trust the autonomous loop. The coder writes/edits/
+  # deletes files and executes shell — these are irreversible without review.
+  mode: manual
+  cron_mode: deny
+  destructive_slash_confirm: true
+
+# Optionally add clearly safe, read-only commands to reduce approval friction.
+# Example: ["cat", "ls", "git diff", "git status"]
+command_allowlist: []
+
+# ---------------------------------------------------------------------------
+# Terminal — override
+# ---------------------------------------------------------------------------
+terminal:
+  # "local" runs on host. Switch to "docker" for sandboxed builds.
+  # See docs/architecture/topologies.md for topology options.
+  backend: local
+  timeout: 180
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Coder gets the implementation-heavy toolset:
+# code_execution + file + terminal for writing and running code.
+# No telegram — orchestrator owns all human notifications.
+#
+# NOTE: there is intentionally NO "lsp" toolset here. hermes-agent v0.14.0 does
+# not recognize an "lsp" toolset and emits a non-fatal "Unknown toolsets: lsp"
+# warning if it is listed. Re-add it only once your hermes-agent build ships a
+# real lsp toolset.
+platform_toolsets:
+  cli:
+    - clarify
+    - code_execution
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - web
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+kanban:
+  # After 2 consecutive failures the task is parked for human review.
+  # The external dispatcher applies a 30-minute cooldown after 3+ failures.
+  failure_limit: 2
+
+# =============================================================================
+# REMINDER: this is the only profile that should produce code changes.
+# Keep its MEMORY.md focused on coding-standard rules (see MEMORY.md.example).
+# =============================================================================

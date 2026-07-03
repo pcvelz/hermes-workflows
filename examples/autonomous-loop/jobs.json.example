@@ -1,0 +1,13 @@
+{
+  "_comment": "Real-shaped autonomous-loop task template (same shape as cron/jobs.json.example). This is the task you grow into once the trivial loop-proof works (see examples/autonomous-loop/README.md). It tails a CI pipeline to a terminal state and writes a SUCCESS/FAILED verdict with a root cause back to the board — the same board→worker→verdict cycle that was proven end-to-end. GENERIC: bring your own CI host (${CI_API_URL}), project (${CI_PROJECT}), pipeline id (${CI_PIPELINE_ID}), and a read token injected via your secrets layer (${CI_TOKEN} — placeholder; never commit a real token; see docs/secrets.md). OFFLINE: tailing a LIVE pipeline needs a reachable CI host + valid id + token; with none available the loop MECHANICS are still fully exercised by examples/autonomous-loop/run-loop-proof.sh. Seed onto the board with: hermes kanban create \"Tail CI pipeline ${CI_PIPELINE_ID}\" --body \"$(jq -r '.jobs[0].prompt' examples/autonomous-loop/jobs.json.example)\" --assignee default --workspace dir:<workspace>  then: hermes kanban dispatch.",
+  "jobs": [
+    {
+      "id": "ci-tail-to-verdict",
+      "schedule": "*/10 * * * *",
+      "profile": "qa-tester",
+      "prompt": "Tail CI pipeline ${CI_PIPELINE_ID} of project ${CI_PROJECT} on ${CI_API_URL} until it reaches a TERMINAL state, then write a verdict back to this task. Use READ-ONLY API calls only with the scoped read token ${CI_TOKEN} as a bearer header (placeholder — resolved from the secrets layer, never inlined). PROCEDURE: (1) Poll the pipeline status endpoint (e.g. GET ${CI_API_URL}/projects/${CI_PROJECT}/pipelines/${CI_PIPELINE_ID}) at a sane interval (every 30-60s) until status is one of: success, failed, canceled, skipped. Do NOT poll faster than every 30s and stop after a hard cap of 30 minutes. (2) When terminal, fetch the pipeline's jobs (GET .../pipelines/${CI_PIPELINE_ID}/jobs) and identify which job(s) decided the outcome. (3) For a FAILED/canceled outcome, fetch the trace of the FIRST failing job (GET .../jobs/<job_id>/trace), read the tail, and extract the ROOT CAUSE — the specific failing step/command and the error line(s), not a vague summary. (4) Write a verdict back to this task and mark it done: a one-line VERDICT (SUCCESS or FAILED: <pipeline_id>) followed by, on failure, the failing job name + stage and the root-cause error excerpt (quote the actual log lines). On success, confirm all jobs passed and note total duration. Anchor every claim to data you actually fetched — never invent a job, status, or error you did not observe. Issue only GET requests; never retry, cancel, or re-run the pipeline.",
+      "enabled": false
+    }
+  ],
+  "updated_at": "2026-01-01T00:00:00+00:00"
+}

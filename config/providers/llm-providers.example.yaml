@@ -1,0 +1,98 @@
+# llm-providers.example.yaml
+#
+# Example provider chain for a Hermes-style autonomous workflow.
+#
+# USAGE
+#   Copy this file to your real provider config location and fill in credentials
+#   via environment variables. See the "Environment variables" section at the
+#   bottom of this file for the full list.
+#
+# NEVER commit real API keys. Keep secrets in your secrets layer
+# (Secrets-Kit on macOS, 1Password op run, or plain env vars for a local POC).
+#
+# ORDERING
+#   Hermes walks the list top-to-bottom. The first reachable, non-rate-limited
+#   provider wins. Place your preferred backend first and any always-available
+#   fallback last.
+#
+# SCHEMA NOTE
+#   The exact config keys (base_url, api_key, model, timeout_seconds, etc.)
+#   depend on the Hermes / hermes-agent version you are running. This template
+#   documents the provider-chain SHAPE and ordering. Consult the upstream
+#   hermes-agent provider documentation to map these fields onto the real schema
+#   expected by your version.
+#
+# For backend selection and swap instructions see: docs/backend.md
+
+providers:
+
+  # ---------------------------------------------------------------------------
+  # 1. LOCAL BACKEND — llama-swap (recommended default)
+  #    A local llama-swap proxy speaking the Anthropic Messages protocol.
+  #    Replace <PORT> with your llama-swap port (default 8080).
+  #    Replace <your-model-alias> with the model id your proxy exposes.
+  # ---------------------------------------------------------------------------
+  - name: llama-swap-local
+    kind: anthropic
+    base_url: "http://127.0.0.1:<PORT>"       # NO /v1 suffix; SDK appends /v1/messages
+    api_key: "${LLM_API_KEY:-local}"          # any non-empty string for local servers
+    model: "${LLM_MODEL:-<your-model-alias>}"
+    timeout_seconds: "${LLM_TIMEOUT:-180}"    # raise for cold-start latency
+    notes: "Local llama-swap proxy — no network egress, no quota."
+
+  # ---------------------------------------------------------------------------
+  # 2. CLOUD FALLBACK — Anthropic (Claude)
+  #    Uncomment and fill in to add Anthropic Cloud as a fallback.
+  # ---------------------------------------------------------------------------
+  # - name: anthropic-cloud
+  #   kind: anthropic
+  #   base_url: "https://api.anthropic.com"
+  #   api_key: "${ANTHROPIC_API_KEY}"
+  #   model: "claude-opus-4-5"               # fill in your choice
+  #   timeout_seconds: 120
+  #   notes: "Anthropic Cloud fallback."
+
+  # ---------------------------------------------------------------------------
+  # 3. CLOUD FALLBACK — OpenAI-compatible
+  #    Uncomment to add OpenAI (or any OpenAI-compatible endpoint) as a fallback.
+  #    Override OPENAI_BASE_URL to point at OpenRouter, LiteLLM, etc.
+  # ---------------------------------------------------------------------------
+  # - name: openai-compat
+  #   kind: openai
+  #   base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+  #   api_key: "${OPENAI_API_KEY}"
+  #   model: "gpt-4o"                        # fill in your choice
+  #   timeout_seconds: 120
+  #   notes: "OpenAI-compatible fallback."
+
+  # ---------------------------------------------------------------------------
+  # 4. ALTERNATE LOCAL — LM Studio or another llama.cpp proxy
+  #    Uncomment to add another local backend as a last-resort fallback.
+  #    Set LLM_BASE_URL and LLM_MODEL to match your proxy configuration.
+  # ---------------------------------------------------------------------------
+  # - name: local-alt
+  #   kind: anthropic                        # or "openai" if your proxy speaks OpenAI
+  #   base_url: "${LLM_ALT_BASE_URL:-http://127.0.0.1:8081}"
+  #   api_key: "${LLM_ALT_API_KEY:-local}"
+  #   model: "${LLM_ALT_MODEL:-my-model}"
+  #   timeout_seconds: 180
+  #   notes: "Alternate local backend (LM Studio, llama.cpp, etc.)."
+
+
+# =============================================================================
+# Environment variables used by this file
+# =============================================================================
+#
+# Variable              Default                           Required?   Description
+# --------------------  --------------------------------  ----------  -------------------------
+# LLM_API_KEY           local                             no          Bearer token for local proxy (if required)
+# LLM_MODEL             <your-model-alias>                YES         Model id your proxy exposes
+# LLM_TIMEOUT           180                               no          Seconds; raise for cold-start latency
+# ANTHROPIC_API_KEY     (none)                            if used     Anthropic Cloud API key
+# OPENAI_API_KEY        (none)                            if used     OpenAI API key
+# OPENAI_BASE_URL       https://api.openai.com/v1         no          Override for OpenAI-compatible endpoint
+# LLM_ALT_BASE_URL      http://127.0.0.1:11434            no          Alternate local backend URL
+# LLM_ALT_API_KEY       local                             no          Bearer token for alternate local
+# LLM_ALT_MODEL         my-model                          no          Model id for alternate local
+#
+# Keep real keys in your secrets layer. NEVER commit a copy with real values.

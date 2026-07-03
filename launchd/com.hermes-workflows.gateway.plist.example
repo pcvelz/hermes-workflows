@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.hermes-workflows.gateway.plist.example
+  ================================
+  launchd user agent template for the Hermes gateway (native venv topology).
+  This is the REFERENCE deployment path — no Docker required.
+
+  Reference: the maintainer runs an equivalent service under launchd at ~/.hermes.
+  See docs/architecture/topologies.md for the native-vs-Docker topology comparison.
+
+  INSTALL STEPS
+  -------------
+  1. Copy this file:
+       cp launchd/com.hermes-workflows.gateway.plist.example \
+          ~/Library/LaunchAgents/com.hermes-workflows.gateway.plist
+
+  2. Replace EVERY __PLACEHOLDER__ with an absolute path.
+     IMPORTANT: launchd does NOT expand ~ or $HOME in plist strings.
+     Use fully-expanded paths, e.g. /Users/yourname/.hermes (not ~/.hermes).
+
+     Placeholders in this file:
+       __HERMES_HOME__  — absolute path to the Hermes runtime directory
+                          (e.g. /Users/yourname/.hermes)
+       __PROFILE__      — gateway profile name: orchestrator | coder | planner | qa-tester
+                          (or your own profile name from $HERMES_HOME/profiles/)
+
+  3. Load the agent:
+       launchctl load -w ~/Library/LaunchAgents/com.hermes-workflows.gateway.plist
+
+  4. Verify it started:
+       launchctl print gui/$(id -u)/com.hermes-workflows.gateway
+
+  RELOAD AFTER EDITING
+  --------------------
+  After changing the plist, use kickstart to hot-reload:
+    launchctl kickstart -k gui/$(id -u)/com.hermes-workflows.gateway
+
+  MULTIPLE PROFILES
+  -----------------
+  One plist per gateway profile. To add a profile (e.g. "private"):
+    cp ~/Library/LaunchAgents/com.hermes-workflows.gateway.plist \
+       ~/Library/LaunchAgents/com.hermes-workflows.gateway-private.plist
+  Then change:
+    - Label -> com.hermes-workflows.gateway-private
+    - --profile argument -> private
+    - StandardOutPath / StandardErrorPath -> gateway-private.log / gateway-private.error.log
+
+  Conceptual roles (used in docs/profiles.md): orchestrator, coder, planner, qa-tester.
+-->
+<plist version="1.0">
+<dict>
+
+  <!-- Unique identifier for this launchd job. One per profile. -->
+  <key>Label</key>
+  <string>com.hermes-workflows.gateway</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!--
+      HERMES_HOME: absolute path to the Hermes runtime directory.
+      launchd does NOT expand ~ — use the full path, e.g. /Users/yourname/.hermes
+    -->
+    <key>HERMES_HOME</key>
+    <string>__HERMES_HOME__</string>
+
+    <!--
+      VIRTUAL_ENV: the venv that hermes-agent was installed into.
+      The venv/bin directory is prepended to PATH below so the correct
+      python and hermes_cli entrypoint are used.
+    -->
+    <key>VIRTUAL_ENV</key>
+    <string>__HERMES_HOME__/hermes-agent/venv</string>
+
+    <!--
+      PATH: include the venv bin FIRST, then system paths.
+      Also add node/nvm and other runtimes your skills need.
+      The real install prepends node_modules/.bin and an nvm node path here.
+    -->
+    <key>PATH</key>
+    <string>__HERMES_HOME__/hermes-agent/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!--
+    ProgramArguments: the verified real Hermes gateway entrypoint.
+    Pattern: venv/bin/python -m hermes_cli.main --profile __PROFILE__ gateway run --replace
+    - 'gateway run'    starts the gateway listener for this profile
+    - '--replace'      replaces any existing gateway process for this profile
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HERMES_HOME__/hermes-agent/venv/bin/python</string>
+    <string>-m</string>
+    <string>hermes_cli.main</string>
+    <string>--profile</string>
+    <string>__PROFILE__</string>
+    <string>gateway</string>
+    <string>run</string>
+    <string>--replace</string>
+  </array>
+
+  <!-- Start the gateway automatically when the user logs in. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!--
+    KeepAlive: restart if the process exits unexpectedly (crash, OOM, etc.).
+    SuccessfulExit=false means: restart on crash, NOT on a clean (0) exit.
+    A clean exit (e.g. from 'gateway stop') will NOT trigger a restart.
+  -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>__HERMES_HOME__/hermes-agent</string>
+
+  <!-- Logs. Absolute paths; launchd will create these files if they don't exist. -->
+  <key>StandardOutPath</key>
+  <string>__HERMES_HOME__/logs/gateway.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HERMES_HOME__/logs/gateway.error.log</string>
+
+</dict>
+</plist>

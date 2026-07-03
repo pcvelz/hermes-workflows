@@ -1,0 +1,38 @@
+# CI — static layer only.
+#
+# The smoke and e2e layers require a local LLM backend endpoint
+# and the real hermes-agent runtime, which are not available on GitHub-hosted
+# runners. See docs/testing.md for the full three-layer test architecture.
+#
+# The static layer degrades gracefully on Linux:
+#   - macOS-only checks (plutil/launchd plists) auto-SKIP.
+#   - Absent optional tools SKIP rather than FAIL.
+#   - docker compose IS present on ubuntu-latest, so that check runs.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Run static layer
+        run: bash scripts/test.sh static

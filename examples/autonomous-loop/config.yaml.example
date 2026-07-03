@@ -1,0 +1,73 @@
+# =============================================================================
+# examples/autonomous-loop — minimal seed config for the PROVEN board→worker→
+# verdict loop.
+#
+# This is the verbatim minimal config the end-to-end proof used: a local
+# backend over the Anthropic Messages protocol, autonomous (no approval prompts),
+# and a MANUAL single-pass dispatcher (no gateway needed for the one-tick proof).
+#
+# Usage:
+#   cp examples/autonomous-loop/config.yaml.example "$HERMES_HOME/config.yaml"
+#   # then edit model.default / model.base_url for YOUR backend.
+#
+# run-loop-proof.sh copies this file into an isolated throwaway HERMES_HOME, so
+# your live ~/.hermes is never touched.
+#
+# For the full base config with every key documented, see
+# config/config.yaml.example.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — point at any Anthropic-Messages- or OpenAI-compatible backend.
+#   - Local llama-swap / llama.cpp / LM Studio (Anthropic protocol): provider: anthropic
+#   - Genuine OpenAI-style endpoint: provider: openai
+# Set model.default to a DOTLESS alias your backend exposes (see docs/backend.md).
+# ---------------------------------------------------------------------------
+model:
+  # Replace with your backend's DOTLESS model alias before running.
+  # hermes-agent normalises '.' → '-' in model ids (e.g. Foo3.6-Bar → Foo3-6-Bar),
+  # so dotted ids 404 on proxies that don't alias the normalised form.
+  # Use a dotless alias your backend exposes. See docs/backend.md.
+  default: local-model
+  provider: anthropic
+  # No /v1 suffix — the SDK appends /v1/messages. Point at your backend.
+  base_url: http://127.0.0.1:8001
+  context_length: 131072
+
+# CLI toolset the worker uses to act (file I/O, terminal, kanban).
+toolsets:
+- hermes-cli
+
+agent:
+  # Cap turns so a worker can't loop forever on a heavy task.
+  max_turns: 30
+
+# ---------------------------------------------------------------------------
+# Kanban / dispatch
+# ---------------------------------------------------------------------------
+kanban:
+  # false = the gateway does NOT run the dispatcher; you drive it manually with
+  # `hermes kanban dispatch` (one tick per invocation). This is what the
+  # single-tick proof used — NO gateway required.
+  #
+  # For a CONTINUOUS unsupervised loop, flip this to true and run
+  # `hermes gateway run` (or install + start). See examples/autonomous-loop/
+  # README.md § "From one tick to a continuous loop".
+  dispatch_in_gateway: false
+
+  # Tick cadence used by the gateway's embedded dispatcher (continuous mode).
+  dispatch_interval_seconds: 5
+
+  # Keep the trivial proof simple — don't auto-split the one-line task.
+  auto_decompose: false
+
+# ---------------------------------------------------------------------------
+# Approvals — AUTONOMOUS: no approval prompts, so the spawned worker runs
+# unattended end-to-end. This is what makes the loop complete without a human.
+#
+# SAFETY: `never` is appropriate for this trivial sandboxed proof only. For real
+# autonomous work prefer `manual` + `cron_mode: deny` until you trust the loop —
+# see docs/security-hardening.md.
+# ---------------------------------------------------------------------------
+approvals:
+  mode: never

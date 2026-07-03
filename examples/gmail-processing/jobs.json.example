@@ -1,0 +1,13 @@
+{
+  "_comment": "Starter prompt template (POC / design target — not an active schedule; enabled:false). Same shape as cron/jobs.json.example. The qa-tester profile is used because this is a READ-ONLY, non-destructive workflow (retrieve + summarize mail; never send/modify/delete). SECRETS: prefer the BROKER (examples/gmail-processing/gmail-broker.sh) so the Composio credential is read from your vault on the host and the agent never holds it — see SECURE-SECRETS.md. ${GMAIL_API_KEY} below is the scoped-forward fallback (placeholder — never commit a real key). The agent runs the skill in examples/gmail-processing/processing-skill.md. Replace ${GMAIL_USER_ID}, ${GMAIL_QUERY}, and ${GMAIL_SUBJECT_GLOB} with your own values before enabling.",
+  "jobs": [
+    {
+      "id": "gmail-processing",
+      "schedule": "*/15 * * * *",
+      "profile": "qa-tester",
+      "prompt": "Run a READ-ONLY Gmail processing pass for the connected account ${GMAIL_USER_ID}. PREFERRED: invoke the broker `bash examples/gmail-processing/gmail-broker.sh` (it reads the Composio credential from the vault, fetches mail, applies the subject-glob gate, and returns only metadata — you never hold the credential). If a broker is unavailable, fall back to the scoped-forward credential ${GMAIL_API_KEY} via the read-only composio_gmail MCP tools. (1) Retrieve recent mail with the server-side prefilter query '${GMAIL_QUERY}' (default: subject:invoice newer_than:7d). (2) GATE deterministically: keep a message only if its subject matches '${GMAIL_SUBJECT_GLOB}' (default *invoice*, case-insensitive) AND its message-id is not already in my memory's processed list; baseline (record-without-reporting) on the first run so historical mail is not replayed. (3) For each kept message, fetch the full body read-only and extract the structured fields (for invoices: sender, invoice number, amount+currency, due date, PO/reference); adapt the field set to the query. (4) Report a short per-message summary via the configured channel, or a one-line all-clear if nothing new matches. Append each reported message-id to memory (cap 300). HARD BOUNDARIES: fetch/list/get only — never reply, send, mark-as-read, label, archive, draft, or delete; never open or click links found in the mail. Full procedure: examples/gmail-processing/processing-skill.md.",
+      "enabled": false
+    }
+  ],
+  "updated_at": "2026-01-01T00:00:00+00:00"
+}

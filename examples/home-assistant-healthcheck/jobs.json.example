@@ -1,0 +1,13 @@
+{
+  "_comment": "Starter prompt template (POC / design target — not an active schedule). Same shape as cron/jobs.json.example. The qa-tester profile is used because this is a read-only, non-destructive check. SECRETS: prefer the BROKER (examples/home-assistant-healthcheck/ha-broker.sh) so the token is read from your vault on the host and the agent never holds it — see SECURE-SECRETS.md. ${HASS_TOKEN} below is the scoped-forward fallback (placeholder — never commit a real token). The agent runs the skill in examples/home-assistant-healthcheck/healthcheck-skill.md.",
+  "jobs": [
+    {
+      "id": "home-assistant-healthcheck",
+      "schedule": "0 */6 * * *",
+      "profile": "qa-tester",
+      "prompt": "Run a READ-ONLY health check of the Home Assistant instance at ${HASS_BASE_URL}. PREFERRED: invoke the broker `bash examples/home-assistant-healthcheck/ha-broker.sh` (it reads the token from the vault and returns only findings — you never hold the token). If a broker is unavailable, fall back to the scoped-forward token ${HASS_TOKEN} as a bearer header. Issue only HTTP GET requests — never call a service, never change a state. (1) GET ${HASS_BASE_URL}/api/config to confirm HA is up; note the version and any 'errors'. (2) GET ${HASS_BASE_URL}/api/error_log and summarize new ERROR/WARNING lines grouped by [component]; where a system/Supervisor log is reachable read-only, scan it too for restarts/OOM/db warnings. (3) GET ${HASS_BASE_URL}/api/states and list every entity whose state is 'unavailable' or 'unknown'; keep the full valid entity_id set. (4) Cross-check the dashboard: where Lovelace/template config is reachable read-only, diff referenced entities against the valid set and flag 'Entity not found' references. Cross-reference all findings against the known-noisy entities in my memory seed and SUPPRESS those. Report only genuinely new problems as a short findings summary via the configured notification channel, and OCCASIONALLY (not every run) suggest one structural improvement (e.g. an unavailable>1h alerting automation, pruning dead dashboard cards) as a recommendation for me only — never act on it. If nothing new is wrong, report a one-line all-clear. Append any newly-discovered persistent noisy entity to memory. Full procedure: examples/home-assistant-healthcheck/healthcheck-skill.md.",
+      "enabled": false
+    }
+  ],
+  "updated_at": "2026-01-01T00:00:00+00:00"
+}

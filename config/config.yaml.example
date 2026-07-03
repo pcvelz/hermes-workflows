@@ -1,0 +1,392 @@
+# =============================================================================
+# Hermes-Workflows — BASE RUNTIME CONFIG TEMPLATE
+# =============================================================================
+# Copy this file to $HERMES_HOME/config.yaml (default: ~/.hermes/config.yaml).
+#
+# Per-profile overlays in config/profiles/<role>/config.yaml.example are merged
+# ON TOP of this base — only declare keys that differ from these defaults there.
+#
+# Before using:
+#   1. Replace every <PLACEHOLDER> with real values.
+#   2. Manage all secrets (API keys, bot tokens) via env vars / secrets layer
+#      (e.g. Secrets-Kit on macOS, 1Password op run). NEVER inline secrets here.
+#   3. Add the filled copy to .gitignore — the .example suffix marks this as a
+#      template only; never commit a filled config.yaml.
+#
+# Schema note: `_config_version: 23` is the value written by the hermes-agent
+# build that this repo targets (install pins tag v0.17.0 — hermes-agent migrates
+# and bumps this value on first run, so the integer is informational, not a pin).
+# Newer hermes versions may rewrite the file on first run (which drops YAML
+# comments). Version-control your working copy separately.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — primary inference endpoint
+# ---------------------------------------------------------------------------
+# Default: a local llama-swap proxy (the recommended starting point).
+# Swap in any Anthropic-Messages- or OpenAI-compatible backend by editing
+# model.default, model.base_url, and the matching providers: entry below.
+# See docs/backend.md for swap instructions and alternative backends.
+#
+# CLOUD BACKEND: to use a cloud provider (Anthropic, OpenAI, OpenRouter, etc.)
+# instead, see the "cloud" entry in model_aliases below and the matching
+# provider in providers:. Uncomment model.default: cloud (and the cloud provider)
+# then start hermes with -m cloud.
+model:
+  # Local llama-swap proxy — replace <your-model-alias> with the model id
+  # your llama-swap instance exposes (e.g. qwen3-35b, llama-3.1-8b).
+  default: <your-model-alias>
+
+  # "anthropic" = Anthropic Messages wire protocol.
+  # Use for: llama-swap, LM Studio, or any proxy that speaks the
+  # Anthropic Messages API. Use "openai" for genuine OpenAI-style endpoints.
+  provider: anthropic
+
+  # Local llama-swap proxy. NO /v1 suffix — the SDK appends /v1/messages.
+  # Replace <PORT> with your llama-swap port (default 8080).
+  # For a cloud backend: set to the provider's base URL (e.g. https://api.anthropic.com).
+  # DOCKER NOTE: if your backend binds loopback-only, containers cannot reach it
+  #   via localhost. Expose it on the docker bridge or use host.docker.internal.
+  base_url: http://127.0.0.1:<PORT>
+
+  context_length: 131072
+
+# ---------------------------------------------------------------------------
+# Timeout note
+# ---------------------------------------------------------------------------
+# If your backend has cold-start latency (e.g. a local model loaded on demand),
+# set read timeouts to >=120 s. The defaults below are calibrated for a local
+# llama-swap proxy with potential cold-start. Do NOT lower gateway_timeout below
+# 1800 for long autonomous runs.
+
+# ---------------------------------------------------------------------------
+# Providers (backend registry)
+# ---------------------------------------------------------------------------
+# Named provider entries. Reference them in fallback_providers below.
+# Keys are read from env vars via key_env — NEVER inline secrets here.
+# See docs/backend.md for the full swap guide.
+providers:
+  local:
+    name: Local LLM proxy (llama-swap)
+    transport: anthropic_messages            # Anthropic Messages wire protocol
+    base_url: http://127.0.0.1:<PORT>        # NO /v1 suffix; replace <PORT>
+    # No API key required for a local proxy. If your proxy demands a bearer
+    # token, set key_env to a var and export it: export LLM_API_KEY=your-token
+
+  # ---------------------------------------------------------------------------
+  # CLOUD BACKEND — uncomment to add a cloud provider as primary or fallback.
+  #
+  # Anthropic Cloud (Claude):
+  #   cloud-anthropic:
+  #     name: Anthropic Cloud
+  #     transport: anthropic_messages
+  #     base_url: https://api.anthropic.com
+  #     key_env: ANTHROPIC_API_KEY
+  #
+  # OpenAI or OpenAI-compatible (OpenRouter, etc.):
+  #   cloud-openai:
+  #     name: OpenAI-compatible
+  #     transport: openai
+  #     base_url: https://api.openai.com/v1
+  #     key_env: OPENAI_API_KEY
+  # ---------------------------------------------------------------------------
+
+  # Add more providers here as needed.
+
+# Ordered list of provider names to try on error/timeout from model.default.
+# Hermes walks the list top-to-bottom. Leave empty for single-backend setups.
+fallback_providers: []
+
+credential_pool_strategies: {}
+
+# ---------------------------------------------------------------------------
+# Toolsets
+# ---------------------------------------------------------------------------
+# Base CLI toolset available to all profiles unless overridden.
+# Platform-specific toolsets (telegram, etc.) are added per-profile via
+# platform_toolsets below.
+toolsets:
+  - hermes-cli
+
+# ---------------------------------------------------------------------------
+# Agent loop
+# ---------------------------------------------------------------------------
+agent:
+  max_turns: 60
+  # Do not lower below 1800 for long autonomous runs.
+  gateway_timeout: 1800
+  api_max_retries: 3
+  reasoning_effort: medium     # low | medium | high
+  tool_use_enforcement: auto
+  # If your backend has cold-start latency, keep this >=120 s.
+  clarify_timeout: 600
+
+# ---------------------------------------------------------------------------
+# Terminal / shell execution
+# ---------------------------------------------------------------------------
+# DEFAULT POSTURE (trusted operator, no untrusted input):
+terminal:
+  backend: local              # local | docker
+  # "local" runs commands on the host. Use "docker" for sandboxed builds;
+  # see docs/architecture/topologies.md for topology options.
+  timeout: 180
+  persistent_shell: true
+  lifetime_seconds: 300
+
+# ---------------------------------------------------------------------------
+# SECURE POSTURE — docker-sandboxed terminal backend
+# ---------------------------------------------------------------------------
+# Use this block (instead of the "local" block above) whenever the agent
+# ingests anything you did not write: open-web pages, inbound messages,
+# untrusted MCP results, or any other externally controlled content.
+#
+# "local" runs commands with full host privileges. "docker" confines every
+# shell command the agent runs to an isolated container, giving you a real OS
+# boundary (not just an in-process guardrail) against prompt-injection and
+# accidental host damage.
+#
+# HOW TO ACTIVATE: comment out the "backend: local" block above and uncomment
+# the block below (or replace terminal: entirely).
+#
+# TIERED SECRETS — why docker_forward_env: [] matters
+#   The inference key (e.g. LLM_API_KEY or ANTHROPIC_API_KEY) is in the
+#   *hermes-agent process* environment, injected at launch by seckit/op.
+#   docker_forward_env: [] (the default) keeps it OUT of the bash sandbox so
+#   a prompt-injected shell command cannot read `env` and steal the key.
+#   See docs/secrets.md for the full tiered model.
+#
+# terminal:
+#   backend: docker
+#   # Pin to a digest-tagged image for reproducibility.
+#   # python:3.12-slim is a reasonable general-purpose starting point.
+#   docker_image: python:3.12-slim
+#
+#   # Mount only the workspace (cwd at launch), not the whole home directory.
+#   docker_mount_cwd_to_workspace: true
+#
+#   # CRITICAL: keep this empty list. It prevents ALL host env vars — including
+#   # LLM_API_KEY, ANTHROPIC_API_KEY, and any other injected secrets — from
+#   # flowing into the container. The agent process keeps the key; the sandbox
+#   # never sees it. To forward a specific task secret (e.g. a read-only deploy
+#   # token), add only that one name: [MY_DEPLOY_TOKEN]. Prefer the broker
+#   # pattern (the host-bridge holds the key and performs the action) over
+#   # forwarding at all.
+#   docker_forward_env: []
+#
+#   # Run as a non-root user inside the container.
+#   docker_run_as_host_user: false   # container's own non-root user
+#
+#   # Optional resource caps.
+#   container_memory: 5120           # MB
+#   container_disk: 51200            # MB
+#
+#   timeout: 180
+#   persistent_shell: true
+#   lifetime_seconds: 300
+
+# ---------------------------------------------------------------------------
+# Web / search
+# ---------------------------------------------------------------------------
+# Planner profile overlays SearXNG here; leave blank in the base config.
+web:
+  backend: ""
+  search_backend: ""
+  extract_backend: ""
+
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
+memory:
+  memory_enabled: true
+  user_profile_enabled: true
+
+  # Per-profile MEMORY.md is hard-capped at ~2200 chars and injected into
+  # EVERY turn. Keep it behavioral rules only — no logs, no notes, no history.
+  # Content beyond 2200 chars belongs in the vault layer; see docs/memory.md.
+  memory_char_limit: 2200
+
+  user_char_limit: 1375
+  nudge_interval: 10
+  flush_min_turns: 6
+
+# ---------------------------------------------------------------------------
+# Context compression
+# ---------------------------------------------------------------------------
+# Auto-compress the context window when it crosses `threshold` fraction full.
+# Keep enabled for long autonomous sessions.
+compression:
+  enabled: true
+  threshold: 0.5
+  target_ratio: 0.2
+  protect_last_n: 20
+  protect_first_n: 3
+
+# ---------------------------------------------------------------------------
+# Approvals
+# ---------------------------------------------------------------------------
+approvals:
+  # manual = human approves risky tool calls before execution.
+  # Options: manual | auto | <plan-defined>
+  # Profiles that only dispatch/notify can relax to auto; the coder should
+  # stay on manual until the autonomous loop is trusted.
+  mode: manual
+  timeout: 60
+
+  # cron_mode: deny means cron-triggered runs NEVER auto-approve destructive ops.
+  cron_mode: deny
+
+  mcp_reload_confirm: true
+  destructive_slash_confirm: true
+
+# Shell commands auto-approved without prompting. Keep tight; add only
+# clearly safe, read-only commands you are comfortable auto-running.
+command_allowlist: []
+
+# ---------------------------------------------------------------------------
+# Kanban / task dispatch
+# ---------------------------------------------------------------------------
+kanban:
+  # Built-in gateway dispatcher promotes/dispatches kanban tasks automatically.
+  # Set this to false ONLY if you run hooks/per-profile-dispatcher/handler.py
+  # instead. They are ALTERNATIVES — never enable both simultaneously.
+  dispatch_in_gateway: true
+
+  # 60-second tick matches the external dispatcher cadence.
+  dispatch_interval_seconds: 60
+
+  failure_limit: 2
+
+  # Large tasks are auto-split into subtasks via the kanban_decomposer model.
+  auto_decompose: true
+  auto_decompose_per_tick: 3
+
+  # 14400 s = 4 h Willow worker runtime before the worker is reaped.
+  # Matches the external dispatcher's MAX_RUNTIME_SECONDS constant.
+  dispatch_stale_timeout_seconds: 14400
+
+  # Set to the name of the profile that owns dispatch/notifications.
+  # Example: 'orchestrator'
+  orchestrator_profile: ""
+
+  default_assignee: ""
+
+# ---------------------------------------------------------------------------
+# Curator
+# ---------------------------------------------------------------------------
+# Weekly MEMORY.md hygiene pass — prunes stale rules and keeps content within
+# the memory_char_limit cap.
+curator:
+  enabled: true
+  interval_hours: 168          # 168 h = 7 days
+  min_idle_hours: 2
+  stale_after_days: 30
+  archive_after_days: 90
+  backup:
+    enabled: true
+    keep: 5
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+skills:
+  # Absolute paths to additional skill directories.
+  # Example: ~/Documents/Code/<your-project>/hermes/skills
+  # See docs/skills-whitelist.md for whitelist strategy.
+  external_dirs: []
+
+  template_vars: true
+  creation_nudge_interval: 15
+
+  # DENY-LIST of skill names to suppress from the system prompt.
+  # Keeping this list tight prevents prompt bloat and speeds local-model inference.
+  # This template uses an include-list convention — see docs/skills-whitelist.md.
+  disabled:
+    - <skill-to-disable-1>
+    - <skill-to-disable-2>
+
+# ---------------------------------------------------------------------------
+# Cron
+# ---------------------------------------------------------------------------
+# Cron job definitions (watchdog, vault sync, daily note, etc.) are defined
+# per-profile and via the scheduler element. See cron/README.md.
+cron:
+  wrap_response: true
+  max_parallel_jobs: null
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+logging:
+  level: INFO
+  max_size_mb: 5
+  backup_count: 3
+
+# ---------------------------------------------------------------------------
+# Model aliases
+# ---------------------------------------------------------------------------
+# "primary" mirrors model.default above. Add aliases here for explicit
+# per-task model selection (e.g. a cheaper model for lightweight tasks).
+model_aliases:
+  primary:
+    model: <your-model-alias>
+    provider: anthropic
+    base_url: http://127.0.0.1:<PORT>
+
+  # ---------------------------------------------------------------------------
+  # CLOUD alias — uncomment to enable `-m cloud` for a cloud provider.
+  #
+  # Steps:
+  #   1. Replace <CLOUD_BASE_URL> with your provider's URL
+  #      (e.g. https://api.anthropic.com or https://api.openai.com/v1).
+  #   2. Replace <your-cloud-model> with the model id (e.g. claude-opus-4-5).
+  #   3. Set provider to "anthropic" or "openai" as appropriate.
+  #   4. Also uncomment the matching cloud provider entry in providers: above.
+  #   5. Run: hermes -m cloud --ignore-user-config chat
+  # ---------------------------------------------------------------------------
+  # cloud:
+  #   model: <your-cloud-model>       # e.g. claude-opus-4-5, gpt-4o
+  #   provider: anthropic              # or "openai"
+  #   base_url: <CLOUD_BASE_URL>       # e.g. https://api.anthropic.com
+
+# ---------------------------------------------------------------------------
+# Platform toolsets
+# ---------------------------------------------------------------------------
+# Declares which tool groups are available on each platform surface.
+# Profiles can narrow or extend this list in their own overlay.
+platform_toolsets:
+  cli:
+    - clarify
+    - code_execution
+    - cronjob
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - web
+  # Note: "telegram" surface is added only in the orchestrator profile overlay.
+
+# ---------------------------------------------------------------------------
+# Telegram notifier (orchestrator profile owns this)
+# ---------------------------------------------------------------------------
+# Leave platform unconfigured in the base. The orchestrator profile overlay
+# activates Telegram. Token via TELEGRAM_BOT_TOKEN env / secret manager.
+telegram:
+  require_mention: false
+  allowed_chats: ""
+
+# ---------------------------------------------------------------------------
+# Schema version
+# ---------------------------------------------------------------------------
+# DO NOT hand-edit this value downward. hermes-agent owns schema migrations.
+_config_version: 23
+
+# =============================================================================
+# SECURITY REMINDER
+# API keys, bot tokens, chat IDs, and database credentials must ALWAYS come
+# from environment variables or a secrets layer (Secrets-Kit, op run, etc.) —
+# never inlined in this file. Profile overlays can re-declare any key above to
+# override it for that role.
+# =============================================================================

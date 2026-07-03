@@ -1,0 +1,86 @@
+# =============================================================================
+# PLANNER — Profile Config Overlay
+# =============================================================================
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: Research (SearXNG), task decomposition, and daily planning note.
+#       Does NOT implement — outputs plans, notes, and ready subtasks only.
+#
+# Copy to: $HERMES_HOME/profiles/planner/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override
+# ---------------------------------------------------------------------------
+model:
+  # Fill in your model id; see docs/backend.md for backend options.
+  default: <YOUR_MODEL_NAME>
+  provider: anthropic
+  base_url: http://127.0.0.1:<PORT>   # your backend; NO /v1 suffix for Anthropic protocol
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # Planning benefits from reasoning depth, but no heavy tool execution loops.
+  reasoning_effort: medium
+  max_turns: 40
+
+# ---------------------------------------------------------------------------
+# Web / search — override
+# ---------------------------------------------------------------------------
+# Planner is the research-focused profile; it activates the SearXNG backend.
+web:
+  backend: searxng
+  search_backend: searxng
+  # Adjust to your SearXNG instance port.
+  # "ddgs" (DuckDuckGo) is a zero-infra fallback if you don't run SearXNG.
+  searxng_url: http://localhost:8888
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # Planner only reads, searches, and writes notes — low-risk profile.
+  # auto-approve is safe here. cron_mode: deny remains non-negotiable.
+  mode: auto
+  cron_mode: deny
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+# Planner is the natural owner of task decomposition. It breaks epics into
+# well-scoped subtasks that the coder can pick up.
+kanban:
+  auto_decompose: true
+  auto_decompose_per_tick: 3
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Web-heavy toolset. No code_execution, no terminal, no lsp — the planner
+# does not implement.
+platform_toolsets:
+  cli:
+    - clarify
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - todo
+    - web
+
+# ---------------------------------------------------------------------------
+# Cron — note
+# ---------------------------------------------------------------------------
+# The daily-note cron runs under this profile (e.g. 22:00 daily).
+# Definition lives in the scheduler element — see cron/README.md.
+cron:
+  wrap_response: true
+
+# =============================================================================
+# REMINDER: planner outputs plans, notes, and decomposed tasks only.
+# It must not write code, run shell, or make database/destructive changes.
+# =============================================================================

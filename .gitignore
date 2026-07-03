@@ -1,0 +1,73 @@
+# Templates here use placeholders only — never commit real secrets even if not matched below.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
+build/
+dist/
+
+# Secrets & env
+.env
+.env.*
+!.env.example
+auth.json
+auth.lock
+*.key
+*.pem
+# Ignore secrets/ CONTENTS (real keys stay local), but ship the scaffold
+# templates. A bare `secrets/` would exclude the dir outright and no
+# negation could re-include files under it — use `secrets/*` + negations.
+secrets/*
+!secrets/README.md
+!secrets/seckit-defaults.example.json
+
+# Databases & runtime state
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.pid
+*.lock
+*.log
+logs/
+
+# Hermes runtime home (if checked out near a live install)
+.hermes/
+hermes_home/
+sessions/
+sandboxes/
+image_cache/
+audio_cache/
+cache/
+
+# Node (cloud-inference wrapper)
+node_modules/
+npm-debug.log*
+yarn-error.log
+.pnpm-store/
+
+# Vault private content — private memory & secrets vault content stays local;
+# only the vault scaffold/structure (the seed README.md in each dir) is tracked.
+vault/Security/*
+!vault/Security/README.md
+vault/Project/*
+!vault/Project/README.md
+vault/**/private/
+vault/Meta/hermes-learnings/*
+!vault/Meta/hermes-learnings/README.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Misc
+*.orig.bak

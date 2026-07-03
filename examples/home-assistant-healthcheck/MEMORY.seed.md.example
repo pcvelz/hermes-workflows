@@ -1,0 +1,46 @@
+<!-- =========================================================================
+  MEMORY.seed.md — Home Assistant health-check memory (example)
+  =========================================================================
+  POC / design target. This is the per-run context the health-check agent
+  retains BETWEEN runs so it does not re-alert on problems you have already
+  classified as expected noise.
+
+  In a real deployment this seed lives wherever the chosen profile's memory is
+  stored (see config/profiles/<role>/MEMORY.md.example and docs/memory.md).
+  Copy this to your real memory location and replace the examples below with
+  YOUR instance's known-noisy entities.
+
+  RULES + a short known-noise list only — no logs, no full run history.
+  ========================================================================= -->
+
+# Home Assistant health check — retained memory
+
+## Connection
+- Target: `${HASS_BASE_URL}` (your HA instance). Auth: `Bearer ${HASS_TOKEN}`.
+- Read-only. GET requests only. Never call a service or change a state.
+
+## Known-noisy entities (SUPPRESS — do not alert)
+<!-- These are entities you have confirmed are *expected* to be flaky/absent.
+     Listing one here means: do not report it as a finding. Replace with yours. -->
+- `sensor.example_battery_powered_sensor` — sleeps to save battery; reports
+  `unavailable` between wake cycles. Expected, not a fault.
+- `binary_sensor.example_guest_phone` — only present when a guest device is on
+  the network; `unknown` when away is normal.
+- `weather.example_forecast_provider` — upstream API occasionally 5xx's;
+  recovers on its own within an hour. Only alert if stuck > 6 h.
+
+## Known-noisy log patterns (SUPPRESS)
+- `WARNING ... example_integration ... retrying` — transient, self-heals.
+
+## Behavioral rules
+- Suppress anything matching the lists above. Report everything else.
+- Never hide a *new* failure just to keep the report short.
+- If a NEW entity has been `unavailable`/`unknown` across 3+ consecutive runs
+  and the human has not acted, append it here as a candidate noisy entity and
+  note the date — but keep reporting it until then.
+- Prefer one terse all-clear line over a verbose "everything is fine" report.
+
+<!-- =========================================================================
+  Keep this short. The point is suppression of KNOWN noise, not an archive.
+  Curate it the same way you would a profile MEMORY.md.
+  ========================================================================= -->

@@ -1,0 +1,92 @@
+# Example Hindsight sync configuration.
+# Copy to hindsight.yaml and edit for your environment.
+# Portable template — uses placeholders only, no secrets.
+#
+# See docs/memory.md for the three-layer memory architecture context.
+# See scripts/memory/vault-hindsight-sync.example.sh for the sync script.
+
+hindsight:
+  # Hindsight pgvector service endpoint.
+  # Native setup: a local service, started separately (e.g., via launchd or systemd).
+  # Docker/compose setup: the `hindsight` container with port 8889 published to the host.
+  endpoint: "http://localhost:8889"
+
+  # api_key: "<your-token>"
+  # Uncomment if your Hindsight instance requires authentication.
+  # Prefer reading the token from an environment variable rather than hardcoding here:
+  #   api_key: "${HINDSIGHT_API_KEY}"
+
+  # IMPORTANT: set timeout to >= 60 seconds (higher if your backend has cold-start latency).
+  # If the Hindsight embedder invokes your configured LLM backend, backends with
+  # on-demand model loading may pause on the first request. Set the timeout to
+  # cover your backend's worst-case response time.
+  timeout_seconds: 120
+
+sync:
+  # Cron cadence: re-sync changed vault files every 30 minutes.
+  # The sync script is invoked by launchd (native) or cron; this value is
+  # documentation for the scheduler — the script uses its own wall-clock budget.
+  interval_minutes: 30
+
+  # Hard wall-clock cap per sync run.
+  # If the run cannot finish all changed files within this budget, it stops
+  # cleanly and resumes on the next tick. Prevents overlap/stampede between runs.
+  wall_budget_seconds: 90
+
+  # mtime-incremental: only (re)ingest files whose mtime is newer than the
+  # last successful sync. Avoids re-embedding the entire vault on every tick.
+  mode: mtime-incremental
+
+  # File recording the epoch of the last successful sync.
+  # Home-relative path — portable across installations.
+  state_file: "~/.hindsight-sync-state"
+
+vault:
+  # Path to the vault root directory.
+  # Placeholder: set to your actual vault path, e.g., $HERMES_HOME/vault or ~/vault.
+  root: "~/vault"
+
+  # Top-level vault sections to include in semantic sync.
+  include_dirs:
+    - Architecture
+    - Operations
+    - Research
+    - Meta
+    - Strategy
+    # Security/ policy docs (public) can also be included; omit if you want
+    # to keep them out of the semantic store.
+    # - Security
+
+  # Sections excluded from sync.
+  # Project/ is excluded because it is its own git repo with a separate boundary;
+  # sync it via a dedicated job if desired.
+  # Security/private/ is excluded because it may contain sensitive notes.
+  exclude_dirs:
+    - Project
+    - Security/private
+
+  # File patterns to include/exclude within the included dirs.
+  include_globs:
+    - "**/*.md"
+
+  exclude_globs:
+    - "**/.obsidian/**"
+    - "**/*.syncstate"
+    - "**/.hindsight-sync-state"
+
+embedding:
+  # The embedding model is configured on the Hindsight service side.
+  # This client only POSTs file content; Hindsight handles chunking and embedding
+  # unless you configure client-side chunking below.
+
+  # Approximate chunk size in characters for long files.
+  # Tune to match your embedder's context window. 4000 chars is a safe default
+  # for most local embedding models.
+  chunk_chars: 4000
+
+# Docker note:
+# If Hindsight runs in the compose stack, `endpoint` above stays :8889.
+# If the Hindsight embedder must reach a self-hosted LLM backend on the host,
+# see docs/backend.md and docs/architecture/topologies.md — a backend that binds
+# loopback-only (127.0.0.1) is NOT reachable from inside a container without
+# exposing it on the docker bridge or using host.docker.internal.

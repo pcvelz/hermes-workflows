@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.hermes-workflows.backup.plist.example
+  ==========================================
+  launchd user agent template for the daily Hermes kanban DB backup.
+  Runs scripts/backup/kanban-backup.example.sh at 03:00 every day.
+
+  This is a SCHEDULED (one-shot) job — it uses StartCalendarInterval, not KeepAlive.
+  It fires once per day and exits; launchd does not restart it between runs.
+
+  NATIVE vs IN-GATEWAY BACKUP — PICK ONE
+  ---------------------------------------
+  Two mechanisms can back up the kanban DB:
+    A. This launchd plist (recommended default) — fires at 03:00 via host scheduler.
+    B. The in-gateway cron job 'kanban-db-backup' in cron/jobs.json.example.
+
+  Enable EXACTLY ONE to avoid double backups. By default:
+    - This plist is the active method (enable it).
+    - The in-gateway cron job is set to "enabled": false in jobs.json.example.
+
+  See cron/README.md for the full backup-choice discussion.
+
+  INSTALL STEPS
+  -------------
+  1. Copy this file:
+       cp launchd/com.hermes-workflows.backup.plist.example \
+          ~/Library/LaunchAgents/com.hermes-workflows.backup.plist
+
+  2. Replace ALL __PLACEHOLDER__ tokens with absolute paths.
+     IMPORTANT: launchd does NOT expand ~ or $HOME — use fully-expanded paths.
+
+     Placeholders in this file:
+       __HERMES_HOME__          — absolute path to the Hermes runtime directory
+                                  (e.g. /Users/yourname/.hermes)
+       __HERMES_WORKFLOWS_DIR__ — absolute path to this repo
+
+  3. Load the agent:
+       launchctl load -w ~/Library/LaunchAgents/com.hermes-workflows.backup.plist
+
+  4. Test immediately (runs backup on demand, outside the scheduled time):
+       launchctl start com.hermes-workflows.backup
+
+  5. Verify output:
+       tail -f __HERMES_HOME__/logs/backup.log
+-->
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.hermes-workflows.backup</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!--
+      HERMES_HOME: absolute path to the Hermes runtime directory.
+      launchd does NOT expand ~ — use /Users/yourname/.hermes, not ~/.hermes.
+    -->
+    <key>HERMES_HOME</key>
+    <string>__HERMES_HOME__</string>
+
+    <!--
+      HERMES_BACKUP_DIR: where timestamped backup files are written.
+      Defaults to $HERMES_HOME/backups inside the script; override here if needed.
+    -->
+    <key>HERMES_BACKUP_DIR</key>
+    <string>__HERMES_HOME__/backups</string>
+
+    <!--
+      HERMES_BACKUP_RETENTION_DAYS: how many days of backups to retain.
+      Backups older than this are pruned by kanban-backup.example.sh.
+    -->
+    <key>HERMES_BACKUP_RETENTION_DAYS</key>
+    <string>14</string>
+
+    <!--
+      PATH: sqlite3 must be on PATH for the backup script.
+      /usr/bin/sqlite3 ships with macOS; /opt/homebrew/bin covers Homebrew installs.
+    -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!--
+    ProgramArguments: run the backup shell script.
+    Replace __HERMES_WORKFLOWS_DIR__ with the absolute path to this repo.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__HERMES_WORKFLOWS_DIR__/scripts/backup/kanban-backup.example.sh</string>
+  </array>
+
+  <!--
+    StartCalendarInterval: fire at 03:00 daily (Hour=3, Minute=0).
+    This matches the kanban-db backup cron schedule (0 3 * * *).
+    launchd fires at the next occurrence after load; if the machine is asleep at
+    03:00, launchd fires the job when the machine wakes.
+  -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>3</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <!--
+    RunAtLoad=false: do NOT fire a backup immediately on every load/reboot.
+    Use `launchctl start com.hermes-workflows.backup` for on-demand test runs.
+  -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- No KeepAlive — this is a one-shot scheduled job, not a long-running daemon. -->
+
+  <key>StandardOutPath</key>
+  <string>__HERMES_HOME__/logs/backup.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HERMES_HOME__/logs/backup.error.log</string>
+
+</dict>
+</plist>

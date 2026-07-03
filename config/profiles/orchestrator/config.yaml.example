@@ -1,0 +1,98 @@
+# =============================================================================
+# ORCHESTRATOR — Profile Config Overlay
+# =============================================================================
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: Task dispatch, scheduled crons, Telegram notifications.
+#       The orchestrator NEVER writes code or runs shell beyond dispatch/notify.
+#
+# Copy to: $HERMES_HOME/profiles/orchestrator/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override (same endpoint, cheaper reasoning tier)
+# ---------------------------------------------------------------------------
+model:
+  # Orchestrator uses the configured backend. Dispatch reasoning is light —
+  # a smaller/cheaper model tier is fine here.
+  # Fill in your model id; see docs/backend.md for backend options.
+  default: <YOUR_MODEL_NAME>
+  provider: anthropic
+  base_url: http://127.0.0.1:<PORT>   # your backend; NO /v1 suffix for Anthropic protocol
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # Orchestration is routing logic, not deep coding. Keep cheap and fast.
+  reasoning_effort: low
+  max_turns: 40
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # Orchestrator may auto-approve its own dispatch and notify actions.
+  # It does NOT write code, edit files, or run arbitrary shell, so auto is safe.
+  mode: auto
+  # cron_mode: deny is non-negotiable — cron-triggered runs never auto-approve
+  # destructive operations even if the orchestrator's general mode is auto.
+  cron_mode: deny
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+kanban:
+  dispatch_in_gateway: true
+
+  # Declare THIS profile as the dispatch owner. Hermes uses this to route
+  # unassigned dispatch work to the orchestrator gateway.
+  orchestrator_profile: orchestrator
+
+  # Unassigned "ready" tasks are routed to the coder profile by default.
+  default_assignee: coder
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Orchestrator gets dispatch/notify/cron toolsets.
+# No code_execution, no lsp, no browser — those belong to coder and qa-tester.
+platform_toolsets:
+  cli:
+    - clarify
+    - cronjob
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - web
+  # Orchestrator is the ONLY profile wired to the Telegram notifier.
+  telegram:
+    - hermes-telegram
+
+# ---------------------------------------------------------------------------
+# Telegram — override
+# ---------------------------------------------------------------------------
+telegram:
+  require_mention: false
+  # Set from env/secret manager at launchd load time — never inline here.
+  # Export TELEGRAM_BOT_TOKEN in the launchd plist environment.
+  allowed_chats: "<YOUR_TELEGRAM_CHAT_ID>"
+
+# ---------------------------------------------------------------------------
+# Cron — note
+# ---------------------------------------------------------------------------
+# The watchdog, vault-sync, and backup crons run under this profile.
+# Their definitions live in the scheduler element (cron/README.md).
+# This profile inherits cron.wrap_response: true from the base config.
+cron:
+  wrap_response: true
+
+# =============================================================================
+# REMINDER: this profile should NEVER do implementation work.
+# Its job is to dispatch tasks to other profiles and notify humans of outcomes.
+# =============================================================================

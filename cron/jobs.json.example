@@ -1,0 +1,75 @@
+{
+  "jobs": [
+    {
+      "id": "ram-watchdog",
+      "schedule": "*/5 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Check current host RAM usage and memory pressure. If available memory is below <threshold>MB or memory pressure is critical, identify the heaviest Hermes worker process and restart it via the bridge endpoint POST http://127.0.0.1:9876/service-restart with the appropriate service label. Log the action and notify via the configured channel.",
+      "enabled": true
+    },
+    {
+      "id": "stale-worker-watchdog",
+      "schedule": "*/15 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Scan all active worker processes for stale heartbeats. Reap any worker whose heartbeat is older than 15 minutes (standard), allowing 60 minutes grace during startup and enforcing a hard maximum runtime of 4 hours. For each reaped worker, mark its assigned task status back to 'ready' so it can be re-dispatched. Log which workers were reaped and which tasks were returned to the queue.",
+      "enabled": true
+    },
+    {
+      "id": "dispatcher-health",
+      "schedule": "*/15 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Verify the gateway's asyncio dispatcher tick is alive and processing normally. Check that the dispatcher has run within the last 60 seconds. If the dispatcher appears stalled or unresponsive, send an alert via Telegram/Mattermost and issue a restart of the gateway service via POST http://127.0.0.1:9876/service-restart with label 'com.hermes-workflows.gateway'.",
+      "enabled": true
+    },
+    {
+      "id": "vault-hindsight-sync",
+      "schedule": "*/30 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Sync recent notes and documents from the Obsidian vault at <VAULT_PATH> into the Hindsight pgvector memory store for semantic search. Index any notes modified since the last sync run. Update the sync timestamp. This keeps the agent's long-term semantic memory current with vault activity.",
+      "enabled": true
+    },
+    {
+      "id": "board-hygiene",
+      "schedule": "*/30 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Audit the kanban board for hygiene issues: close any tasks that are orphaned (no parent, blocked indefinitely, or superseded); resolve dependency chains and promote tasks from 'todo' to 'ready' status when all their dependencies have been completed; check for tasks stuck in 'in-progress' without an active worker and return them to 'ready'. Summarize changes made.",
+      "enabled": true
+    },
+    {
+      "id": "post-work-audit",
+      "schedule": "*/30 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Review tasks completed in the last 30 minutes. For each completed task: check that the acceptance criteria were met, look for regressions or side-effects in related areas, and file follow-up tasks if quality issues or incomplete work is detected. Add a brief audit note to each reviewed task.",
+      "enabled": true
+    },
+    {
+      "id": "redeploy-on-sha-drift",
+      "schedule": "0 * * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Check for remote code changes and redeploy if needed. Call the bridge endpoint POST http://127.0.0.1:9876/git-pull to fetch and fast-forward the project repository. If the returned head_sha differs from the last deployed SHA (stored in <HERMES_HOME>/deployed-sha or equivalent), trigger a build via POST http://127.0.0.1:9876/build and then a deploy via POST http://127.0.0.1:9876/deploy. Record the new deployed SHA on success.",
+      "enabled": true
+    },
+    {
+      "id": "inference-live-probe",
+      "schedule": "0 */4 * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Send a minimal inference probe to the configured LLM backend to verify it is reachable and responding. Endpoint: ${LLM_BASE_URL} (example: a local llama-swap proxy at http://127.0.0.1:<PORT>), model: ${LLM_MODEL} (replace <your-model-alias> with your configured model). Allow at least 120 seconds for the response if your backend has cold-start latency. If the probe fails or times out, send an alert via the configured notification channel.",
+      "enabled": true
+    },
+    {
+      "id": "planner-daily-note",
+      "schedule": "0 22 * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Generate the planner daily note for today. Summarize: tasks completed today, tasks still in progress, blockers encountered, decisions made, and planned work for tomorrow. Write the note to the Obsidian vault at <VAULT_PATH>/Daily Notes/<YYYY-MM-DD>.md using today's date. Include links to relevant task IDs.",
+      "enabled": true
+    },
+    {
+      "id": "kanban-db-backup",
+      "schedule": "0 3 * * *",
+      "profile": "<PROFILE>",
+      "prompt": "Run the kanban database backup. Note: this in-gateway cron is DISABLED by default because the launchd job com.hermes-workflows.backup (launchd/com.hermes-workflows.backup.plist.example) already schedules the backup script at 03:00. Enable this cron ONLY if you are not using the launchd plist, to avoid double backups. If enabled, trigger: bash <HERMES_WORKFLOWS_DIR>/scripts/backup/kanban-backup.example.sh",
+      "enabled": false
+    }
+  ],
+  "updated_at": "2026-01-01T00:00:00+00:00"
+}

@@ -1,0 +1,306 @@
+# =============================================================================
+# Hermes Workflows — OPTIONAL Docker Topology
+# =============================================================================
+# This is the OPTIONAL Docker deployment. The primary install path for this
+# project is the native launchd + Python venv approach (see README.md at the
+# repository root and docs/architecture/topologies.md). Docker is a convenience
+# scaffold for users who prefer containers — it has NOT been validated end-to-end
+# and should be treated as a starting point, not an authoritative deployment.
+#
+# BRING YOUR OWN BACKEND: set LLM_BASE_URL and HERMES_MODEL to point at any
+# OpenAI- or Anthropic-compatible endpoint. The recommended default is a local
+# llama-swap proxy (llama.cpp or LM Studio also work — together or separately)
+# speaking the native Anthropic protocol; any hosted Anthropic-compatible cloud
+# API works too. See docs/backend.md for backend wiring details.
+#
+# If your LLM backend is self-hosted and binds to loopback only, containers
+# cannot reach it directly. Expose it to the Docker bridge or use
+# host.docker.internal. See docker/README.md → "Backend reachability".
+#
+# Set HERMES_UID/HERMES_GID to the host owner of HERMES_HOME so bind-mounted
+# volume files stay host-writable. Simplest approach:
+#   HERMES_UID=$(id -u) HERMES_GID=$(id -g) docker compose --env-file .env up -d
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Shared YAML anchors
+# ---------------------------------------------------------------------------
+
+# Backend wiring shared by agent, hermes-pi, and hermes-claude.
+# Recommended default: a local llama-swap proxy (llama.cpp or LM Studio also
+# work) speaking the native Anthropic protocol. Override LLM_BASE_URL and
+# HERMES_MODEL in .env for a different backend — including any hosted
+# Anthropic-compatible cloud API.
+x-llm-env: &llm-env
+  # Native Anthropic-protocol endpoint (/v1/messages) — NO /v1 suffix; the SDK
+  # appends it. In Docker a loopback-bound local proxy is reached via
+  # host.docker.internal (see docker/README.md → "Backend reachability").
+  ANTHROPIC_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:<PORT>}
+  # API key / bearer for the chosen backend — supply via secrets layer, not
+  # plaintext. For a local proxy "local" (or empty) is fine; for a hosted
+  # backend set LLM_API_KEY via Secrets-Kit or 1Password (see docs/secrets.md).
+  ANTHROPIC_API_KEY: ${LLM_API_KEY:-}
+  # OpenAI-compatible endpoint if your backend exposes one (/v1/chat/completions, etc.)
+  # Leave blank to use only the native-Anthropic path above.
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  # Model id as the backend expects it (the alias your proxy exposes).
+  HERMES_MODEL: ${HERMES_MODEL:-<your-model-alias>}
+
+# extra_hosts entry needed on native Linux Docker; Docker Desktop on macOS/Windows
+# resolves host.docker.internal automatically, but declaring it is harmless and
+# makes this file portable across platforms.
+x-extra-hosts: &extra-hosts
+  - "host.docker.internal:host-gateway"
+
+# ---------------------------------------------------------------------------
+# Network
+# ---------------------------------------------------------------------------
+networks:
+  hermes-net:
+    driver: bridge
+    # Bridge network gives companion services isolated DNS so they resolve each
+    # other by service name (searxng, hindsight). The agent reaches a self-hosted
+    # backend on the host via host.docker.internal + extra_hosts rather than
+    # host networking. NOTE: this differs from the upstream stock compose which
+    # uses `network_mode: host`.
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # --------------------------------------------------------------------------
+  # agent — Hermes orchestrator/gateway
+  # --------------------------------------------------------------------------
+  agent:
+    # WARNING: ghcr.io/nousresearch/hermes-agent is NOT a known published image as of
+    # this writing and will almost certainly fail to pull. Hermes is distributed as a
+    # Python package installed from source — NOT as a Docker image.
+    #
+    # RECOMMENDED: clone the upstream repo and build a local image instead:
+    #   git clone https://github.com/NousResearch/hermes-agent.git ../.hermes-agent
+    #   # Then uncomment the build: stanza below (comment out the image: line).
+    #
+    # The upstream install command (Python venv path) is:
+    #   pip install "git+https://github.com/NousResearch/hermes-agent.git"
+    # WARNING: do NOT `pip install hermes-cli` or `pip install hermes-agent` from PyPI
+    #          — those are unrelated third-party packages.
+    image: ${HERMES_IMAGE:-ghcr.io/nousresearch/hermes-agent:latest}
+    # To build from a local hermes-agent source checkout (recommended over the image above):
+    # build:
+    #   context: ${HERMES_AGENT_SRC:-../.hermes-agent}
+    # Obtain the source: git clone https://github.com/NousResearch/hermes-agent.git ../.hermes-agent
+    container_name: hermes-agent
+    restart: unless-stopped
+    networks:
+      - hermes-net
+    extra_hosts: *extra-hosts
+    environment:
+      <<: *llm-env
+      HERMES_UID: ${HERMES_UID:-10000}
+      HERMES_GID: ${HERMES_GID:-10000}
+      HERMES_HOME: /opt/data
+      # Conceptual role profile (orchestrator | coder | planner | qa-tester).
+      # Map these to the Hermes profile names in your ~/.hermes/profiles/ directory.
+      HERMES_PROFILE: ${HERMES_PROFILE:-orchestrator}
+      # Read timeout in seconds. If your backend has cold-start latency (e.g. a
+      # self-hosted local model that loads into VRAM on first request), set this
+      # generously (>=120s). A hosted cloud API needs only 30–60s.
+      HERMES_HTTP_TIMEOUT: ${HERMES_HTTP_TIMEOUT:-120}
+      # Companion service URLs (resolved via bridge DNS by service name)
+      SEARXNG_URL: http://searxng:8080
+      HINDSIGHT_URL: http://hindsight:8889
+    volumes:
+      # Single bind mount for the runtime home directory.
+      # Use an absolute path in .env — ~ may not expand in all Docker contexts.
+      - ${HERMES_HOME:-~/.hermes}:/opt/data
+      # PLAYWRIGHT_BROWSERS_PATH lives inside the image, not this volume.
+    depends_on:
+      searxng:
+        condition: service_healthy
+      hindsight:
+        condition: service_healthy
+      # The agent tolerates companions being optional.
+      # Remove depends_on entries for services you don't run.
+    command: ["gateway", "run"]
+    # Native entry point reference:
+    #   python -m hermes_cli.main --profile PROFILE gateway run --replace
+    healthcheck:
+      # Set start_period generously if your backend has cold-start latency.
+      test: ["CMD-SHELL", "curl -fsS http://localhost:${HERMES_GATEWAY_PORT:-9876}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    ports:
+      # SECURITY: gateway/bridge stores secrets; only bind to localhost.
+      # Do NOT change 127.0.0.1 to 0.0.0.0 without adding auth.
+      - "127.0.0.1:${HERMES_GATEWAY_PORT:-9876}:9876"
+
+  # --------------------------------------------------------------------------
+  # searxng — private metasearch / web search
+  # --------------------------------------------------------------------------
+  searxng:
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
+    container_name: hermes-searxng
+    restart: unless-stopped
+    networks:
+      - hermes-net
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8888}/
+      # Generate a secret: openssl rand -hex 32
+      SEARXNG_SECRET: "${SEARXNG_SECRET:?set SEARXNG_SECRET in .env; generate with openssl rand -hex 32}"
+      INSTANCE_NAME: hermes-searxng
+    volumes:
+      # settings.yml persists here; enable JSON output format if the agent's
+      # search tool requires it (SEARXNG_SEARCH_FORMAT=json in settings.yml)
+      - searxng-config:/etc/searxng
+    ports:
+      # SearXNG listens internally on 8080; published on 127.0.0.1:8888 by default.
+      - "127.0.0.1:${SEARXNG_PORT:-8888}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # hindsight — pgvector semantic memory (Postgres substrate)
+  # --------------------------------------------------------------------------
+  hindsight:
+    # BARE PGVECTOR SUBSTITUTE — NOT the full Hindsight implementation.
+    # This container runs a plain pgvector/pgvector Postgres database as the
+    # storage substrate. There is no ingest API wired: the Hermes cron that syncs
+    # knowledge into Hindsight is a dry-run stub in this scaffold. Semantic
+    # retrieval against this store is proposed design, not yet implemented.
+    # If an official upstream Hindsight image becomes available, set HINDSIGHT_IMAGE.
+    image: ${HINDSIGHT_IMAGE:-pgvector/pgvector:pg16}
+    container_name: hermes-hindsight
+    restart: unless-stopped
+    networks:
+      - hermes-net
+    environment:
+      POSTGRES_USER: ${HINDSIGHT_DB_USER:-hindsight}
+      POSTGRES_PASSWORD: "${HINDSIGHT_DB_PASSWORD:?set HINDSIGHT_DB_PASSWORD in .env; no default, choose a strong unique value}"
+      POSTGRES_DB: ${HINDSIGHT_DB_NAME:-hindsight}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      # This volume holds the Postgres data directory. Back up with pg_dump.
+      - hindsight-data:/var/lib/postgresql/data
+    ports:
+      # Postgres listens internally on 5432; published on 127.0.0.1:8889 by default.
+      - "127.0.0.1:${HINDSIGHT_PORT:-8889}:5432"
+    healthcheck:
+      # $$ escapes Compose interpolation so the shell sees $POSTGRES_USER/$POSTGRES_DB
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # --------------------------------------------------------------------------
+  # hermes-pi — pi-coding-agent worker (OPTIONAL)
+  # --------------------------------------------------------------------------
+  # OPTIONAL: only include this service if you intend to run the pi-coding-agent
+  # alongside Hermes. Point it at your own backend via the llm-env anchor above.
+  hermes-pi:
+    image: node:20-slim
+    container_name: hermes-pi
+    restart: unless-stopped
+    networks:
+      - hermes-net
+    extra_hosts: *extra-hosts
+    working_dir: /app
+    environment:
+      <<: *llm-env
+      # PI_OFFLINE=1 prevents pi-coding-agent from contacting external APIs.
+      # Combine with an empty ANTHROPIC_API_KEY to prevent any cloud routing.
+      PI_OFFLINE: ${PI_OFFLINE:-1}
+      PI_ARGS: ${PI_ARGS:-}
+    volumes:
+      # pi workspace / state — persists across restarts
+      - ${HERMES_HOME:-~/.hermes}/pi:/app/data
+      # npm cache persists so subsequent container starts skip the npx pull
+      - pi-npm:/app/node_modules
+    # npx caches into the pi-npm volume on first run.
+    # Pin the version for reproducibility, e.g.:
+    #   npx --yes @mariozechner/pi-coding-agent@<version> ${PI_ARGS:-}
+    command: ["sh", "-c", "npx --yes @mariozechner/pi-coding-agent ${PI_ARGS:-}"]
+    # hermes-pi is a worker, not a server — no healthcheck needed.
+    # If your backend binds loopback only, see docker/README.md → "Backend reachability".
+    # Set read timeouts generously if your backend has cold-start latency.
+
+  # --------------------------------------------------------------------------
+  # hermes-claude — Claude Code worker (OPTIONAL)
+  # --------------------------------------------------------------------------
+  # OPTIONAL: only include this service to run Claude Code (the `claude` CLI) as
+  # a worker against the SAME backend as agent/hermes-pi. It inherits the
+  # x-llm-env anchor, so it uses the same models and the same OpenAI-/Anthropic-
+  # compatible endpoint. Claude Code speaks the Anthropic Messages protocol, so
+  # it is driven entirely via ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY from the
+  # anchor — see services/hermes-claude.md.
+  hermes-claude:
+    image: node:20-slim
+    container_name: hermes-claude
+    restart: unless-stopped
+    networks:
+      - hermes-net
+    extra_hosts: *extra-hosts
+    working_dir: /app
+    environment:
+      <<: *llm-env
+      # Claude Code has no ANTHROPIC_MODEL var — it selects a model per tier
+      # (opus/sonnet/haiku) or via --model. Map every tier to your single
+      # backend model so its preflight requests don't 404 against a local proxy
+      # that serves only one alias. Override per-run with CLAUDE_ARGS=--model ...
+      ANTHROPIC_DEFAULT_OPUS_MODEL: ${HERMES_MODEL:-<your-model-alias>}
+      ANTHROPIC_DEFAULT_SONNET_MODEL: ${HERMES_MODEL:-<your-model-alias>}
+      ANTHROPIC_DEFAULT_HAIKU_MODEL: ${HERMES_MODEL:-<your-model-alias>}
+      # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 stops Claude Code from making
+      # non-essential outbound calls (telemetry, auto-update, error reporting).
+      # With ANTHROPIC_BASE_URL pointed at your backend this keeps it offline.
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: ${CLAUDE_OFFLINE:-1}
+      # Persist Claude Code config/sessions in the bind-mounted volume below.
+      CLAUDE_CONFIG_DIR: /app/data
+      CLAUDE_ARGS: ${CLAUDE_ARGS:-}
+    volumes:
+      # Claude Code config/session state (CLAUDE_CONFIG_DIR) — persists across restarts
+      - ${HERMES_HOME:-~/.hermes}/claude:/app/data
+      # npm cache persists so subsequent container starts skip the npx pull
+      - claude-npm:/app/node_modules
+    # npx caches into the claude-npm volume on first run.
+    # Pin the version for reproducibility, e.g.:
+    #   npx --yes @anthropic-ai/claude-code@<version> ${CLAUDE_ARGS:-}
+    command: ["sh", "-c", "npx --yes @anthropic-ai/claude-code ${CLAUDE_ARGS:-}"]
+    # hermes-claude is a worker, not a server — no healthcheck needed.
+    # If your backend binds loopback only, see docker/README.md → "Backend reachability".
+    # Set read timeouts generously if your backend has cold-start latency.
+
+# ---------------------------------------------------------------------------
+# Named volumes (per-companion-service state)
+# ---------------------------------------------------------------------------
+volumes:
+  # SearXNG configuration (settings.yml, engine overrides, etc.)
+  searxng-config:
+  # Hindsight/pgvector Postgres data — knowledge corpus; back up with pg_dump
+  hindsight-data:
+  # Cached node_modules for the pi-coding-agent npx install
+  pi-npm:
+  # Cached node_modules for the Claude Code (claude CLI) npx install
+  claude-npm:
+
+# ---------------------------------------------------------------------------
+# Volume notes
+# ---------------------------------------------------------------------------
+# The single bind mount ${HERMES_HOME}:/opt/data is the source of truth for
+# kanban.db, state.db, sessions/, skills/, and profiles/ — mirroring the
+# native runtime home. Named volumes above hold per-companion-service state only.
+#
+# SECURITY SUMMARY: every published port is bound to 127.0.0.1 by default.
+# Nothing is exposed on the LAN unless you explicitly change these bindings.
+#
+# SECRETS: do NOT put real API keys in this file or in .env committed to git.
+# Use Secrets-Kit (macOS) or 1Password op run to inject keys at launch time.
+# See docs/secrets.md for the recommended approach.

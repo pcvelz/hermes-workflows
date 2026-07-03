@@ -1,0 +1,46 @@
+# vault/.gitignore
+# Protects the outer vault git repository.
+# NEVER commit secrets, private notes, or the nested Project/ repo here.
+# See vault/Security/ for the full secret-handling policy.
+
+# ── Nested repo ─────────────────────────────────────────────────────────────
+# Project/ is its own git repository with independent versioning and nightly
+# backup. Excluding its CONTENTS here prevents double-tracking, but the seed
+# README.md must still ship as scaffold. A bare `Project/` would exclude the
+# dir outright and defeat the root .gitignore's `!vault/Project/README.md`.
+Project/*
+!Project/README.md
+
+# ── Private / sensitive sections ────────────────────────────────────────────
+# Keep Security/README.md and policy docs TRACKED (they contain no secrets).
+# Only exclude an explicitly-private subfolder for sensitive notes.
+Security/private/
+.private/
+
+# ── Secrets — never commit (defense in depth) ────────────────────────────────
+# Secrets live in the secrets manager, not in markdown files.
+# These patterns are a last-resort safety net.
+*.env
+.env
+*.key
+*.pem
+secrets.*
+
+# ── Obsidian local workspace state ──────────────────────────────────────────
+# Workspace layout, recent-files cache, and plugin data are machine-local.
+.obsidian/workspace*
+.obsidian/cache
+.obsidian/plugins/
+.trash/
+
+# ── Hindsight sync bookkeeping ──────────────────────────────────────────────
+# The sync state file records the last-sync epoch for mtime-incremental logic.
+# It is local runtime state, not knowledge.
+.hindsight-sync-state
+*.syncstate
+
+# ── OS / editor cruft ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*~

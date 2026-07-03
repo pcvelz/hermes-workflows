@@ -1,0 +1,47 @@
+<!-- =========================================================================
+  MEMORY.seed.md — Gmail processing memory (example)
+  =========================================================================
+  POC / design target. This is the per-run context the processing agent retains
+  BETWEEN runs so a scheduled job does not re-report mail it has already handled
+  (and does not replay historical mail on first start).
+
+  In a real deployment this seed lives wherever the chosen profile's memory is
+  stored (see config/profiles/<role>/MEMORY.md.example and docs/memory.md).
+  Copy this to your real memory location and replace the examples below with
+  YOUR query, glob, and processed-id list.
+
+  RULES + a short processed-id list only — no message bodies, no full archive.
+  ========================================================================= -->
+
+# Gmail processing — retained memory
+
+## Scope
+- Connected account: `${GMAIL_USER_ID}` (your Composio user id).
+- Query (server prefilter): `${GMAIL_QUERY}`  (example: `subject:invoice newer_than:7d`)
+- Subject glob (post-filter): `${GMAIL_SUBJECT_GLOB}`  (example: `*invoice*`)
+- Read-only. Fetch/list/get only. Never send, reply, mark-as-read, label,
+  archive, draft, or delete. Never open or click links found in mail.
+
+## Baseline
+- `initialized`: `false` until the first run completes. On the first run, record
+  the ids of all currently-matching messages WITHOUT reporting them, then set
+  `initialized: true`. This prevents replaying historical mail.
+
+## Processed message ids (SUPPRESS — already reported)
+<!-- Append a message-id here after you report it, so the next run skips it.
+     Cap the list (keep the most recent ~300). These are example placeholders. -->
+- `example-msg-id-0001`  — Invoice INV-2026-0001, reported 2026-01-04.
+- `example-msg-id-0002`  — Invoice INV-2026-0007, reported 2026-01-09.
+
+## Behavioral rules
+- Keep a message only if BOTH: subject matches the glob AND its id is not in the
+  processed list above. Drop everything else silently (no tokens spent on misses).
+- Never drop a genuinely NEW matching message just to keep the report short.
+- Prefer one terse all-clear line over a verbose "no new mail" report.
+- After reporting a message, append its id here and trim the list to the most
+  recent ~300 ids.
+
+<!-- =========================================================================
+  Keep this short. The point is dedup/suppression of ALREADY-HANDLED mail and a
+  no-replay baseline — not an archive of message contents.
+  ========================================================================= -->

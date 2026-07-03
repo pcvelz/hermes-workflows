@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.hermes-workflows.bridge.plist.example
+  ==========================================
+  launchd user agent template for the Hermes host bridge (scripts/bridge/hermes-bridge.py).
+  Keeps the bridge running on port 9876 with RunAtLoad + KeepAlive.
+
+  The bridge is a dependency-free Python HTTP service that exposes privileged host
+  operations (git pull, launchctl restart, log tailing, optional Docker dev-stack)
+  to the Hermes agent. See scripts/bridge/hermes-bridge.py for the full rationale.
+
+  INSTALL STEPS
+  -------------
+  1. Copy this file:
+       cp launchd/com.hermes-workflows.bridge.plist.example \
+          ~/Library/LaunchAgents/com.hermes-workflows.bridge.plist
+
+  2. Replace ALL __PLACEHOLDER__ tokens with absolute paths.
+     IMPORTANT: launchd does NOT expand ~ or $HOME — use fully-expanded paths.
+
+     Placeholders in this file:
+       __HERMES_HOME__          — absolute path to the Hermes runtime directory
+                                  (e.g. /Users/yourname/.hermes)
+       __PROJECT_DIR__          — absolute path to the project repo the bridge manages
+       __PYTHON3__              — absolute path to a python3 binary, e.g.:
+                                    /usr/bin/python3  (system, stdlib-only bridge)
+                                    __HERMES_HOME__/hermes-agent/venv/bin/python3
+       __HERMES_WORKFLOWS_DIR__ — absolute path to this repo
+
+  3. Load the agent:
+       launchctl load -w ~/Library/LaunchAgents/com.hermes-workflows.bridge.plist
+
+  4. Quick health check:
+       curl -s http://127.0.0.1:9876/health
+
+  RELOAD AFTER EDITING
+  --------------------
+    launchctl kickstart -k gui/$(id -u)/com.hermes-workflows.bridge
+-->
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.hermes-workflows.bridge</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!--
+      HERMES_HOME: absolute path to the Hermes runtime directory.
+      Used by the bridge to locate logs and (optionally) the kanban DB.
+      launchd does NOT expand ~ — use /Users/yourname/.hermes, not ~/.hermes.
+    -->
+    <key>HERMES_HOME</key>
+    <string>__HERMES_HOME__</string>
+
+    <!--
+      HERMES_PROJECT_DIR: path to the project repository the bridge builds/deploys.
+      The bridge's /build, /deploy, and /git-pull endpoints operate in this directory.
+      TODO: set this to your actual project path.
+    -->
+    <key>HERMES_PROJECT_DIR</key>
+    <string>__PROJECT_DIR__</string>
+
+    <!--
+      HERMES_BRIDGE_PORT: the port the bridge listens on.
+      9876 is the standard Hermes bridge port. Change only if there is a conflict.
+    -->
+    <key>HERMES_BRIDGE_PORT</key>
+    <string>9876</string>
+
+    <!--
+      HERMES_BRIDGE_BIND: bind address.
+      Default 127.0.0.1 is safe for the native topology (loopback only).
+      For the Docker topology, containers reach the host via host.docker.internal,
+      which requires 0.0.0.0 — but that exposes the bridge to your LAN.
+      If you set this to 0.0.0.0, you MUST also set HERMES_BRIDGE_TOKEN and add a
+      host firewall rule. See docs/architecture/topologies.md for the Docker topology.
+    -->
+    <key>HERMES_BRIDGE_BIND</key>
+    <string>127.0.0.1</string>
+
+    <!--
+      HERMES_BRIDGE_TOKEN: optional shared secret for X-Bridge-Token auth.
+      Leave this key absent (or set to empty string) to disable token auth.
+      Token auth is STRONGLY RECOMMENDED when HERMES_BRIDGE_BIND=0.0.0.0.
+      To enable, uncomment and set a strong random value (e.g. `openssl rand -hex 32`):
+    -->
+    <!-- <key>HERMES_BRIDGE_TOKEN</key> -->
+    <!-- <string><your-token></string> -->
+
+    <!--
+      PATH: the bridge uses only stdlib so any system python3 works.
+      Include /opt/homebrew/bin for tools the bridge shells out to (git, tail, launchctl).
+    -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!--
+    ProgramArguments: run the bridge using system python3 (no extra install needed).
+    __PYTHON3__ options:
+      - /usr/bin/python3          (system Python — works, bridge is stdlib-only)
+      - __HERMES_HOME__/hermes-agent/venv/bin/python3  (venv Python if you prefer)
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__PYTHON3__</string>
+    <string>__HERMES_WORKFLOWS_DIR__/scripts/bridge/hermes-bridge.py</string>
+  </array>
+
+  <!-- Start the bridge automatically when the user logs in. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart on crash; do not restart on a clean exit. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>__HERMES_WORKFLOWS_DIR__</string>
+
+  <key>StandardOutPath</key>
+  <string>__HERMES_HOME__/logs/hermes-bridge.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HERMES_HOME__/logs/hermes-bridge.error.log</string>
+
+</dict>
+</plist>

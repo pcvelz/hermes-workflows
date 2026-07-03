@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# =============================================================================
+# reapply-patches.sh.example — EXAMPLE ONLY / TEMPLATE
+# =============================================================================
+#
+# PURPOSE
+#   Skeleton for re-applying and drift-checking symlink-based patches over the
+#   installed NousResearch hermes-agent tree.
+#
+# HOW TO USE
+#   1. Copy this file to reapply-patches.sh (remove the .example extension).
+#   2. Set REPO and RT (see "Path variables" below) or export the env vars
+#      HERMES_PATCHES and HERMES_AGENT_HOME before running.
+#   3. Populate the PAIRS array with your real installed-relative|patches-relative
+#      entries (examples are commented out below; replace the placeholder pair).
+#   4. Remove or export-satisfy the ALLOW_EXAMPLE sentinel guard (see below).
+#   5. Review the script end-to-end before running against a live install.
+#
+# WHAT IT SHIPS
+#   This file ships NO real patches and the PAIRS entries are placeholders.
+#   See ../docs/patches.md for the full pattern, the real conceptual example
+#   set, and risks.
+#
+# WARNING
+#   This script operates over a LIVE install. A wrong relink can break the
+#   running gateway immediately. Always reload the gateway and verify behavior
+#   after every run.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# SENTINEL GUARD — remove this block (or `export ALLOW_EXAMPLE=1`) once you
+# have copied the file, set PAIRS, and are ready to run for real.
+# ---------------------------------------------------------------------------
+: "${ALLOW_EXAMPLE:?
+  Refusing to run the example template directly.
+  Copy to reapply-patches.sh, fill in the PAIRS array, then run.
+  To override (only after reviewing the script): export ALLOW_EXAMPLE=1
+}"
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Path variables
+#   HERMES_PATCHES    — directory containing your replacement (patch) files
+#                       Default: the directory this script lives in
+#   HERMES_AGENT_HOME — root of the installed hermes-agent tree
+#                       Default: ~/.hermes/hermes-agent  (HERMES_HOME placeholder)
+# ---------------------------------------------------------------------------
+REPO="${HERMES_PATCHES:-"$(cd "$(dirname "$0")" && pwd)"}"
+RT="${HERMES_AGENT_HOME:-"$HOME/.hermes/hermes-agent"}"
+
+# ---------------------------------------------------------------------------
+# PAIRS array
+#   Format: "installed-relative-path|patches-relative-path"
+#   Each entry maps one file inside the installed agent tree to its replacement
+#   copy inside this patches/ directory.
+#
+#   Real conceptual examples (commented out — replace with your own):
+#     "agent/agent_init.py|agent_init.py"
+#     "agent/anthropic_adapter.py|anthropic_adapter.py"
+#     "tools/approval.py|tools/approval.py"
+#     "tools/mcp_oauth.py|tools/mcp_oauth.py"
+#     "gateway/run.py|gateway/run.py"
+#     "gateway/platforms/mattermost.py|gateway_mattermost.py"
+#     "hermes_cli/oneshot.py|hermes_cli/oneshot.py"
+#
+# The entry below is a PLACEHOLDER — it will fail at runtime because the file
+# does not exist. Replace it with your real pairs before running.
+# ---------------------------------------------------------------------------
+PAIRS=(
+  "example/path.py|example_path.py"
+)
+
+# ---------------------------------------------------------------------------
+# Counters
+# ---------------------------------------------------------------------------
+ok=0
+relinked=0
+stale=0
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
+for pair in "${PAIRS[@]}"; do
+  rtrel="${pair%%|*}"
+  reporel="${pair##*|}"
+
+  rtpath="$RT/$rtrel"
+  repopath="$REPO/$reporel"
+
+  # Source file must exist in patches/
+  if [[ ! -f "$repopath" ]]; then
+    echo "MISSING  $reporel (not found in patches/; skipping)" >&2
+    continue
+  fi
+
+  # Already symlinked to our copy — nothing to do
+  if [[ -L "$rtpath" ]] && [[ "$(readlink "$rtpath")" == "$repopath" ]]; then
+    echo "ok       $rtrel"
+    (( ok++ )) || true
+    continue
+  fi
+
+  # Real file (overwritten by an upgrade, or first-time setup)
+  if [[ -f "$rtpath" ]]; then
+    bak="$rtpath.orig.bak"
+
+    # Drift check: if we have a baseline .orig.bak and upstream changed it
+    if [[ -f "$bak" ]] && ! diff -q "$bak" "$rtpath" > /dev/null 2>&1; then
+      stamp="$(date +%Y%m%d-%H%M%S)"
+      upstream_copy="$rtpath.upstream-$stamp"
+      cp "$rtpath" "$upstream_copy"
+
+      echo "" >&2
+      echo "!! STALE $rtrel" >&2
+      echo "   Upstream changed this file since your .orig.bak was recorded." >&2
+      echo "   New upstream saved to: $upstream_copy" >&2
+      echo "   ACTION NEEDED: re-derive your patch against the new upstream" >&2
+      echo "   before trusting the patched version in production." >&2
+      echo "" >&2
+
+      (( stale++ )) || true
+    fi
+
+    # Re-symlink (regardless of stale — caller decides whether to proceed)
+    ln -sf "$repopath" "$rtpath"
+    echo "relinked $rtrel"
+    (( relinked++ )) || true
+
+  else
+    # Path does not exist yet (fresh install, first-time setup)
+    # Ensure parent directory exists
+    mkdir -p "$(dirname "$rtpath")"
+    ln -sf "$repopath" "$rtpath"
+    echo "linked   $rtrel (new)"
+    (( relinked++ )) || true
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo ""
+echo "Summary: ok=$ok  relinked=$relinked  stale=$stale"
+
+if (( stale > 0 )); then
+  echo "" >&2
+  echo "ACTION NEEDED: $stale patch(es) are potentially stale." >&2
+  echo "Review the .upstream-<timestamp> files and re-derive affected patches" >&2
+  echo "before reloading the gateway." >&2
+fi
+
+# ---------------------------------------------------------------------------
+# Next steps (manual — run these after the script completes without errors)
+#
+#   1. Reload the gateway:
+#        launchctl unload  ~/Library/LaunchAgents/com.hermes-workflows.gateway*.plist
+#        launchctl load    ~/Library/LaunchAgents/com.hermes-workflows.gateway*.plist
+#      (replace the glob with your actual plist name if needed)
+#
+#   2. Re-verify behavior: send a probe message through the gateway to exercise
+#      the code paths you patched (e.g. a /mattermost-hermes-test style check).
+# ---------------------------------------------------------------------------
+
+# Exit non-zero if any patches are stale so CI/automation can catch it
+[[ $stale -eq 0 ]]

@@ -1,0 +1,85 @@
+# =============================================================================
+# QA-TESTER — Profile Config Overlay
+# =============================================================================
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: End-to-end browser testing (Playwright) against work produced by the
+#       coder. Verifies acceptance criteria and reports pass/fail.
+#       Does NOT modify source — fixes go back to the coder profile.
+#
+# Copy to: $HERMES_HOME/profiles/qa-tester/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override
+# ---------------------------------------------------------------------------
+model:
+  # Fill in your model id; see docs/backend.md for backend options.
+  default: <YOUR_MODEL_NAME>
+  provider: anthropic
+  base_url: http://127.0.0.1:<PORT>   # your backend; NO /v1 suffix for Anthropic protocol
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # QA is execute-and-report, not deep reasoning. Keep cheap and fast.
+  reasoning_effort: low
+  max_turns: 40
+
+# ---------------------------------------------------------------------------
+# Browser (Playwright) — override
+# ---------------------------------------------------------------------------
+browser:
+  engine: auto                # Playwright selects the available browser engine.
+  inactivity_timeout: 120
+  # Raised from default 30 s — E2E test steps can be slow, especially on
+  # first page load or when the app under test is starting up.
+  command_timeout: 60
+  # Required to test localhost/dev servers. Set false in untrusted environments.
+  allow_private_urls: true
+  # Flip to true to capture video recordings for debugging failed test runs.
+  record_sessions: false
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # QA runs read-only browser flows — auto-approve is safe.
+  # It MUST NOT modify source; code changes require human review on the coder.
+  mode: auto
+  cron_mode: deny
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Browser is the centrepiece. code_execution and terminal are allowed ONLY for
+# launching the app under test and running `playwright test` — not for editing.
+platform_toolsets:
+  cli:
+    - browser
+    - clarify
+    - code_execution
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - web
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+kanban:
+  # QA picks up tasks tagged for testing. On failure it re-opens the task
+  # and assigns it back to the coder with a repro report.
+  default_assignee: ""
+
+# =============================================================================
+# REMINDER: qa-tester verifies and reports — it never edits source code.
+# On failure: capture repro (steps + expected vs actual) and re-open the task.
+# On pass: mark task verified and move to done.
+# =============================================================================
