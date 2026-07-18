@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# =============================================================================
+# .githooks/pre-commit — local gate mirroring CI's "Static checks" job.
+#
+# CI (.github/workflows/ci.yml) runs `bash scripts/test.sh static` and fails
+# the build if it reports a [FAIL]. This hook runs the exact same command
+# BEFORE the commit is created, so a red static layer never reaches GitHub.
+#
+# Enable this hook (tracked hooks are not active by default):
+#   git config core.hooksPath .githooks
+#   (or: bash scripts/install-hooks.sh)
+#
+# Bypass in an emergency (NOT recommended — CI will still catch it):
+#   git commit --no-verify
+#
+# Portable: macOS + Linux. No hard-coded absolute paths — the repo root is
+# resolved from this hook's own location via `git rev-parse --show-toplevel`.
+# =============================================================================
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Prefer git's own resolution when available (handles worktrees correctly).
+if command -v git >/dev/null 2>&1; then
+  GIT_TOPLEVEL="$(cd "$REPO_ROOT" && git rev-parse --show-toplevel 2>/dev/null)"
+  if [ -n "$GIT_TOPLEVEL" ]; then
+    REPO_ROOT="$GIT_TOPLEVEL"
+  fi
+fi
+
+echo "pre-commit: running static checks (bash scripts/test.sh static)..."
+echo
+
+if bash "$REPO_ROOT/scripts/test.sh" static; then
+  echo
+  echo "pre-commit: static checks PASSED — proceeding with commit."
+  exit 0
+else
+  status=$?
+  echo
+  echo "=============================================================================="
+  echo " COMMIT BLOCKED — static checks FAILED (bash scripts/test.sh static)"
+  echo "=============================================================================="
+  echo " This is the same check CI runs as 'CI / Static checks'. Fix the [FAIL] lines"
+  echo " above, re-stage, and commit again."
+  echo
+  echo " Emergency bypass (skips this hook — CI will still fail on push):"
+  echo "   git commit --no-verify"
+  echo "=============================================================================="
+  exit "${status:-1}"
+fi

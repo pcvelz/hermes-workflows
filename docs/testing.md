@@ -173,3 +173,34 @@ HERMES_WF_E2E=1 bash scripts/test.sh e2e
 - Optional tools missing (`docker`, `plutil`, `jq`, `PyYAML`) downgrade their
   checks to SKIP, so the exit code reflects only genuine failures.
 - **GitHub Actions:** `.github/workflows/ci.yml` runs `bash scripts/test.sh static` on every push and pull_request to `main`; smoke and e2e are local-only (they require your LLM backend and hermes-agent runtime).
+
+---
+
+## Local pre-commit gate (catch a red CI before you push)
+
+A tracked hook, `.githooks/pre-commit`, runs the exact same command CI's
+"Static checks" job runs (`bash scripts/test.sh static`) and **blocks the
+commit** if it FAILs — so a red static layer never reaches GitHub in the
+first place.
+
+Git does not activate tracked hook directories on its own; enable it once per
+clone:
+
+```bash
+git config core.hooksPath .githooks
+# or, equivalently:
+bash scripts/install-hooks.sh
+```
+
+From then on, every `git commit` runs the static layer first. A failure
+prints the same `[FAIL]` lines `scripts/test.sh static` would show, plus a
+clear "COMMIT BLOCKED" banner, and aborts the commit — nothing is created.
+
+Emergency bypass (skips the hook; CI still runs and will still fail on push):
+
+```bash
+git commit --no-verify
+```
+
+The hook is portable (macOS + Linux) and resolves the repo root from its own
+location / `git rev-parse --show-toplevel`, so it works from any clone path.

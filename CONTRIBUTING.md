@@ -38,6 +38,20 @@ cd docker && cp .env.example .env && docker compose up -d
 > `0.0.0.0` (then reference via `host.docker.internal`) or tunnel it — and read the
 > LAN-exposure caveat in [SECURITY.md](SECURITY.md).
 
+### Enable the pre-commit hook
+
+Before your first commit, enable the tracked pre-commit hook so it runs the
+same static checks CI runs (`bash scripts/test.sh static`) and blocks the
+commit locally on failure, instead of finding out on GitHub:
+
+```bash
+git config core.hooksPath .githooks
+# or: bash scripts/install-hooks.sh
+```
+
+Bypass in an emergency with `git commit --no-verify`. Full details:
+[docs/testing.md](docs/testing.md#local-pre-commit-gate-catch-a-red-ci-before-you-push).
+
 ## How to propose a new profile
 
 A profile is a `config.yaml` + a skills include-list + a per-profile `MEMORY.md`

@@ -207,6 +207,7 @@ below for exactly which parts are live versus reference-only.
 | `docker/` | Optional Docker Compose stack (agent + web-search + semantic-memory + cloud-inference wrapper). |
 | `scripts/` | Host helper scripts: health checks, the bridge, backups, memory sync, LLM smoke test. |
 | `hooks/` | Agent lifecycle hooks — notably the dispatcher hook (reference logic). |
+| `.githooks/` | Tracked git hooks — `pre-commit` runs CI's static checks locally before every commit. Enable with `git config core.hooksPath .githooks` (see [docs/testing.md](docs/testing.md)). |
 | `cron/` | Scheduled-maintenance prompt templates (watchdogs, memory sync, board hygiene, backups). |
 | `launchd/` | macOS launchd plist templates for the native gateway processes. |
 | `vault/` | Obsidian-style markdown memory vault scaffold (Architecture/, Operations/, Research/, Project/, Meta/, Security/, Strategy/). |

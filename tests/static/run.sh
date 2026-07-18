@@ -168,12 +168,24 @@ elif [ ! -f "$COMPOSE" ]; then
 elif ! docker compose version >/dev/null 2>&1; then
   skip "docker compose config — 'docker compose' plugin unavailable"
 else
-  if docker compose -f "$COMPOSE" config -q >/tmp/_dc.$$ 2>&1; then
+  # Check #7 validates compose SYNTAX/STRUCTURE only — it does not (and must
+  # not) assert real secret values. docker-compose.yml intentionally guards
+  # deploy-critical vars with ${VAR:?...} so a real `up` without a real .env
+  # fails loudly; that guard stays intact. On a clean checkout (no .env)
+  # those guards also trip `docker compose config`, so we feed throwaway
+  # placeholder values via a scratch --env-file for this validation call
+  # only — real deploys still require real values.
+  DC_ENV_FILE="$(mktemp)"
+  cat >"$DC_ENV_FILE" <<'EOF'
+SEARXNG_SECRET=ci-validate-only-not-a-real-secret
+HINDSIGHT_DB_PASSWORD=ci-validate-only-not-a-real-secret
+EOF
+  if docker compose --env-file "$DC_ENV_FILE" -f "$COMPOSE" config -q >/tmp/_dc.$$ 2>&1; then
     pass "docker compose config $COMPOSE"
   else
     fail "docker compose config $COMPOSE — $(tr '\n' ' ' </tmp/_dc.$$)"
   fi
-  rm -f /tmp/_dc.$$
+  rm -f /tmp/_dc.$$ "$DC_ENV_FILE"
 fi
 
 # ---------------------------------------------------------------------------
