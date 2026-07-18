@@ -71,3 +71,23 @@ Thumbs.db
 
 # Misc
 *.orig.bak
+
+# --- symlink-bridge: real (stripped) twins of every shipped *.example — never commit ---
+# For each committed <name>.example, a user creates a real <name> (no marker) locally.
+# Git-ignored here so real config/secrets never enter git — in a public OR private checkout.
+/config/config.yaml
+/config/providers/llm-providers.yaml
+/config/hindsight/hindsight.yaml
+/config/profiles/*/config.yaml
+/config/profiles/*/MEMORY.md
+/config/profiles/*/SOUL.md
+/cron/jobs.json
+/launchd/*.plist
+/patches/reapply-patches.sh
+/scripts/backup/kanban-backup.sh
+/scripts/memory/vault-hindsight-sync.sh
+/examples/*/config.yaml
+/examples/*/jobs.json
+/examples/*/MEMORY.seed.md
+/plugins/**/settings.hermes.json
+/docker-compose.patches.yml

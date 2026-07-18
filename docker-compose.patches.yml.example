@@ -1,0 +1,27 @@
+# docker-compose.patches.yml.example — ADVANCED / OPTIONAL overlay
+#
+# Only if you run a locally-patched agent (see docs/patches.md) and want those patches live
+# in the container WITHOUT rebuilding. Copy to docker-compose.patches.yml (strip .example) and
+# merge it into your compose invocation with a second -f flag (see docs/patches.md).
+# The real file is git-ignored — it embeds machine-specific absolute paths.
+
+services:
+  agent:
+    # Build from a PRISTINE upstream checkout pinned to a tag — never from a tree whose patch
+    # files are symlinks (they get copied dangling into the image, causing ImportError).
+    image: hermes-agent:vYYYY.M.D
+    environment:
+      # The agent reads base_url from config.yaml and passes it EXPLICITLY to the client;
+      # ANTHROPIC_BASE_URL env is NOT honored for inference. So the container needs its OWN
+      # config.yaml whose base_url points at the host backend.
+      ANTHROPIC_API_KEY: ${LLM_API_KEY:-local-no-auth}
+      HERMES_MODEL: ${HERMES_MODEL:-your-served-model-id}   # never bake a real id; they rot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"      # macOS: reaches host loopback
+    volumes:
+      # container-specific config whose base_url = http://host.docker.internal:<PORT>
+      - ${HERMES_DEPLOY}/config.container.yaml:/opt/data/config.yaml:ro
+      # one read-only mount per patched file (container import path : your source):
+      - ${HERMES_PATCHES}/anthropic_adapter.py:/opt/hermes/agent/anthropic_adapter.py:ro
+      - ${HERMES_PATCHES}/hermes_cli/model_normalize.py:/opt/hermes/hermes_cli/model_normalize.py:ro
+      # ...add one line per patch; keep import paths in sync with the pinned upstream tag.

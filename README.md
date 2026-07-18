@@ -65,9 +65,16 @@ backends. See [docs/getting-started.md](docs/getting-started.md).
 
 ## Architecture at a glance
 
+Hermes talks to you through **channels** — a pluggable I/O layer. A channel is either a **chat channel** (two-way, human-in-the-loop messaging the agent listens and replies on) or a **notification sink** (one-way outbound push for alerts and run summaries). The gateway is channel-agnostic: platforms plug in by **config, not code**, and every channel connects *outbound* — no inbound port is opened on the host.
+
 ```
+             ┌──────────────── channels (operator I/O) ─────────────────┐
+             │  chat    ◀▶  Mattermost · Telegram · Matrix   (two-way)   │
+             │  notify   ▶  ntfy · hermes send · webhook     (push-only) │
+             └───────────────────────────┬──────────────────────────────┘
+                                         ▼
                        ┌──────────────────────────┐
-   chat gateway ◀─────▶│   orchestrator profile   │  dispatch · crons · review
+                       │   orchestrator profile   │  dispatch · crons · review
                        └────────────┬─────────────┘
                                     │  promotes todo→ready, 1 task per idle profile
             ┌───────────────────────┼───────────────────────┐
@@ -91,9 +98,21 @@ backends. See [docs/getting-started.md](docs/getting-started.md).
   MEMORY.md
 ```
 
-The diagram maps to the **native** topology. The same logical components run under the
-optional Docker stack. See [docs/architecture/](docs/architecture/README.md) for the full
-breakdown.
+**Channel kinds.**
+
+| Kind | Direction | Purpose | Plugs in via | Examples |
+|---|---|---|---|---|
+| **Chat channel** | two-way | Human-in-the-loop: send tasks, watch tool progress stream back, approve/deny, get replies in-thread | Built-in gateway adapter — per-profile `platform_toolsets` + a settings block; bot token in the secret/env layer | Mattermost, Telegram, Matrix (any webhook-capable chat) |
+| **Notification sink** | outbound push | Fire-and-forget alerts, cron/watchdog summaries, "job done" pings — no reply loop | `hermes send` to a chat channel, or a small outbound bridge forwarding agent events to a push service | ntfy, generic webhook |
+
+**Adding a channel** is a natural extension of the same abstraction:
+
+- **Another chat channel Hermes supports** → pure config. Add its surface to the profile's `platform_toolsets` (e.g. `telegram: [hermes-telegram]`), add its settings block (`require_mention`, allow-list), put the token in the env/secret layer, and restart the gateway. No code. See the orchestrator overlay in [`config/profiles/orchestrator/`](config/profiles/orchestrator/config.yaml.example) and [docs/operating.md](docs/operating.md).
+- **Another notification sink** → point the notify step at it (a webhook URL or CLI), or run a tiny outbound bridge beside the gateway that forwards agent events to the service (the ntfy pattern). The gateway core is unchanged.
+
+> The scaffold ships **chat-channel** config templates (Telegram/Mattermost) as built-in adapters; **notification sinks** (ntfy, webhooks) are a documented extension pattern — an outbound sidecar — not a bundled adapter.
+
+The diagram maps to the **native** topology; the same logical components run under the optional Docker stack, where a chat channel is a per-profile config change on the bind-mounted home and a notification sink is an extra sidecar service. See [docs/architecture/](docs/architecture/README.md) for the full breakdown.
 
 ## Quickstart
 
