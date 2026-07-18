@@ -378,6 +378,141 @@ telegram:
   allowed_chats: ""
 
 # ---------------------------------------------------------------------------
+# Other chat platforms (Mattermost, Slack, Discord)
+# ---------------------------------------------------------------------------
+# Same pattern as telegram above: leave unconfigured in the base, activate in
+# whichever profile owns human-facing chat for that platform. Credentials
+# (server URL, bot token, webhook URL) come from env vars / a secrets layer —
+# NEVER inline them here. See docs/backend.md and docs/secrets.md.
+mattermost:
+  require_mention: true
+  free_response_channels: ""
+  allowed_channels: ""
+  channel_prompts: {}
+  # Server URL + bot token are read from MATTERMOST_URL / MATTERMOST_TOKEN
+  # env vars at gateway startup — do not put them here.
+
+slack:
+  require_mention: true
+  free_response_channels: ""
+  allowed_channels: ""
+  channel_prompts: {}
+  # Bot token read from SLACK_BOT_TOKEN env var at gateway startup.
+
+discord:
+  require_mention: true
+  free_response_channels: ""
+  allowed_channels: ""
+  auto_thread: true
+  thread_require_mention: false
+  channel_prompts: {}
+  # Bot token read from DISCORD_BOT_TOKEN env var at gateway startup.
+
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+# Guardrails applied to browser/web-fetch/terminal activity. Keep restrictive
+# by default; loosen per-profile only where the role genuinely needs it
+# (e.g. qa-tester needs allow_private_urls: true to hit localhost dev servers).
+security:
+  allow_private_urls: false
+  redact_secrets: true
+  website_blocklist:
+    enabled: false
+    domains: []
+    shared_files: []
+  allow_lazy_installs: true
+
+# ---------------------------------------------------------------------------
+# Delegation (sub-agent spawning)
+# ---------------------------------------------------------------------------
+# Controls the agent's own ability to spawn sub-tasks/sub-agents
+# (delegate_task tool). Leave model/provider/base_url/api_key blank to inherit
+# the profile's primary backend — only fill these in to route delegated work
+# to a DIFFERENT (e.g. cheaper/faster) backend.
+delegation:
+  model: ""
+  provider: ""
+  base_url: ""
+  api_key: ""
+  inherit_mcp_toolsets: true
+  max_iterations: 50
+  child_timeout_seconds: 600
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  orchestrator_enabled: true
+  # Require a human to approve each spawned sub-agent before it runs.
+  # Keep true until the autonomous delegation loop is trusted.
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Model catalog (remote model-list refresh, optional)
+# ---------------------------------------------------------------------------
+# Periodically refreshes known model ids/context-lengths for display purposes.
+# Safe to leave enabled with the upstream default URL; disable entirely for
+# fully offline/airgapped setups.
+model_catalog:
+  enabled: true
+  url: https://hermes-agent.nousresearch.com/docs/api/model-catalog.json
+  ttl_hours: 24
+  providers: {}
+
+# ---------------------------------------------------------------------------
+# Display (CLI/TUI + gateway chat rendering)
+# ---------------------------------------------------------------------------
+display:
+  compact: false
+  personality: helpful
+  resume_display: full
+  busy_input_mode: interrupt
+  show_reasoning: false
+  streaming: true
+  timestamps: false
+  final_response_markdown: strip
+  persistent_output: true
+  persistent_output_max_lines: 200
+  inline_diffs: true
+  file_mutation_verifier: true
+  show_cost: false
+  skin: default
+  language: en
+  # Per-tool-name exclude list to hide noisy tool-progress bubbles from chat
+  # platforms (e.g. a verbose search tool). Keep governance tools like
+  # "memory" OUT of this list — hiding memory writes is a transparency red
+  # flag. See docs/gateway.md.
+  tool_progress: all
+  platforms: {}
+  # Example (per-platform override):
+  # platforms:
+  #   mattermost:
+  #     tool_progress_exclude: [session_search]
+
+# ---------------------------------------------------------------------------
+# Plugins (deterministic hook framework — the governance layer)
+# ---------------------------------------------------------------------------
+# Plugins hook the agent loop (pre_tool_call / post_tool_call / pre_llm_call /
+# on_session_end) for deterministic ENFORCEMENT — prefer this over prose in
+# SOUL.md/MEMORY.md for anything that must actually be gated, not just
+# suggested. See plugins/README.md for the hook contract.
+#
+# Security defaults ON for every profile:
+#   memory-guard  — blocks writes of secrets/PII into persisted memory
+#   audit-log     — append-only log of every tool call (bash/edit audit trail)
+#   policy-gate   — enforces the deny/ask permission rules (approval-gate
+#                   equivalent) before a tool call is allowed to execute
+#
+# Steering plugins are OPT-IN — uncomment to enable per-profile:
+#   skill-router      — routes matching user messages to a skill automatically
+#   tooling-steering  — nudges the agent toward the right tool for a task
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - skill-router
+    # - tooling-steering
+
+# ---------------------------------------------------------------------------
 # Schema version
 # ---------------------------------------------------------------------------
 # DO NOT hand-edit this value downward. hermes-agent owns schema migrations.

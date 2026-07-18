@@ -1,0 +1,6 @@
+name: audit-log
+version: 0.1.0
+description: "Persist every EXECUTED agent command/edit to a structured, greppable log (bash-commands.log + file-edits.log) with secret scrubbing. Observational post_tool_call hook; never blocks (gating is policy-gate's job)."
+author: "Hermes Workflows"
+hooks:
+  - post_tool_call

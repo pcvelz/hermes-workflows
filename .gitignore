@@ -26,6 +26,13 @@ secrets/*
 !secrets/README.md
 !secrets/seckit-defaults.example.json
 
+# Machine-specific overlays — real host-swapped config / bring-up env stay
+# local; only the scaffold README is tracked. Same `dir/*` + negation pattern
+# as secrets/ (a bare `local-overlays/` would exclude the dir outright and no
+# negation could re-include the README).
+local-overlays/*
+!local-overlays/README.md
+
 # Databases & runtime state
 *.db
 *.db-shm

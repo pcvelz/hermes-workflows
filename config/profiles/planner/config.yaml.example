@@ -73,6 +73,37 @@ platform_toolsets:
     - web
 
 # ---------------------------------------------------------------------------
+# Security — override
+# ---------------------------------------------------------------------------
+# Planner is research-heavy and touches the open web — keep the guardrails on.
+security:
+  allow_private_urls: false
+  redact_secrets: true
+  website_blocklist:
+    enabled: false
+    domains: []
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+# Planner may fan out parallel research sub-tasks (one per topic/source).
+delegation:
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - skill-router
+    # - tooling-steering
+
+# ---------------------------------------------------------------------------
 # Cron — note
 # ---------------------------------------------------------------------------
 # The daily-note cron runs under this profile (e.g. 22:00 daily).

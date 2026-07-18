@@ -111,6 +111,42 @@ kanban:
   # The external dispatcher applies a 30-minute cooldown after 3+ failures.
   failure_limit: 2
 
+# ---------------------------------------------------------------------------
+# Security — override
+# ---------------------------------------------------------------------------
+# The coder ingests untrusted content (open-web pages during research, MCP
+# results) alongside trusted repo code, so keep the browser/web guardrails on.
+security:
+  allow_private_urls: false
+  redact_secrets: true
+  website_blocklist:
+    enabled: false
+    domains: []
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+# The coder may fan out sub-tasks (e.g. parallel file edits across a repo).
+# Keep subagent_auto_approve false until the loop is trusted.
+delegation:
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+# Security governance layer stays ON for every profile. The coder is the
+# highest-risk profile (writes/edits/deletes files, runs shell) — do not
+# disable any of these.
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - skill-router
+    # - tooling-steering
+
 # =============================================================================
 # REMINDER: this is the only profile that should produce code changes.
 # Keep its MEMORY.md focused on coding-standard rules (see MEMORY.md.example).

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf /*)", "Bash(rm -rf ~*)", "Bash(rm -rf .*)",
+      "Bash(*mkfs*)", "Bash(dd if=* of=/dev/*)",
+      "Bash(git push --force*)", "Bash(git push -f *)", "Bash(git reset --hard*)",
+      "Bash(*curl* | *sh)", "Bash(*wget* | *sh)", "Bash(chmod -R 777 *)",
+      "Write(//**/.env)", "Edit(//**/.env)",
+      "Read(//**/id_rsa)", "Read(//**/*.pem)", "Read(//**/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(git push*)", "Bash(docker *)", "Bash(*sudo*)",
+      "Bash(npm publish*)", "Bash(pip* install*)"
+    ]
+  },
+  "hermes": {
+    "mode": "warn",
+    "allowedRoots": ["~/your-project", "/tmp", "/private/tmp", "/var/folders"],
+    "denyOutsideRoots": true,
+    "scopedTools": ["write_file", "edit_file", "patch"]
+  }
+}

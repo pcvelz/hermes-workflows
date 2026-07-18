@@ -1,0 +1,6 @@
+name: tooling-steering
+version: 0.1.0
+description: "Deterministically enforce tool discipline for HTTP API / backend calls and MCP setup tasks, by injecting a just-in-time instruction into the user message via a pre_llm_call hook. Prevents the agent from asking the user to paste curl commands or credentials instead of running them itself."
+author: "Hermes Workflows"
+hooks:
+  - pre_llm_call

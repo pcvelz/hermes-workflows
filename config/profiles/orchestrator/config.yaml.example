@@ -84,6 +84,50 @@ telegram:
   allowed_chats: "<YOUR_TELEGRAM_CHAT_ID>"
 
 # ---------------------------------------------------------------------------
+# Other notification platforms — uncomment to add
+# ---------------------------------------------------------------------------
+# The orchestrator is the natural single owner of human-facing notifications;
+# uncomment whichever additional platform(s) you use. Credentials come from
+# env vars (MATTERMOST_URL/MATTERMOST_TOKEN, SLACK_BOT_TOKEN) — never inline.
+# mattermost:
+#   require_mention: false
+#   free_response_channels: "<YOUR_CHANNEL_ID>"
+#   allowed_channels: "<YOUR_CHANNEL_ID>"
+#
+# slack:
+#   require_mention: false
+#   allowed_channels: "<YOUR_CHANNEL_ID>"
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+# Orchestrator fans out dispatch work to other profiles' kanban queues, not
+# via delegate_task sub-agents — keep spawn depth shallow here.
+delegation:
+  max_concurrent_children: 2
+  max_spawn_depth: 1
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Security — override
+# ---------------------------------------------------------------------------
+# Orchestrator only routes/notifies; it does not browse untrusted content.
+security:
+  allow_private_urls: false
+  redact_secrets: true
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - skill-router
+    # - tooling-steering
+
+# ---------------------------------------------------------------------------
 # Cron — note
 # ---------------------------------------------------------------------------
 # The watchdog, vault-sync, and backup crons run under this profile.

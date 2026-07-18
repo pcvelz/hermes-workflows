@@ -1,0 +1,6 @@
+name: prompt-log
+version: 0.1.0
+description: "Log every user prompt (secrets scrubbed) to logs/user-prompts.log. The Hermes analog of Claude Code's log-user-prompt.sh UserPromptSubmit hook. Completes the audit trio next to audit-log's bash-commands.log + file-edits.log."
+author: "Hermes Workflows"
+hooks:
+  - pre_llm_call

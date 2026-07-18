@@ -78,6 +78,39 @@ kanban:
   # and assigns it back to the coder with a repro report.
   default_assignee: ""
 
+# ---------------------------------------------------------------------------
+# Security — override
+# ---------------------------------------------------------------------------
+# QA drives a real browser against the app under test, including localhost —
+# allow_private_urls is intentionally true here (see browser: above). Keep
+# the website blocklist available for excluding known-bad external domains
+# a test flow might wander into.
+security:
+  allow_private_urls: true
+  redact_secrets: true
+  website_blocklist:
+    enabled: false
+    domains: []
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+delegation:
+  max_concurrent_children: 2
+  max_spawn_depth: 1
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - skill-router
+    # - tooling-steering
+
 # =============================================================================
 # REMINDER: qa-tester verifies and reports — it never edits source code.
 # On failure: capture repro (steps + expected vs actual) and re-open the task.
