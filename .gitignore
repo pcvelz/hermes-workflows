@@ -32,6 +32,8 @@ secrets/*
 # negation could re-include the README).
 local-overlays/*
 !local-overlays/README.md
+!local-overlays/regen-container-config.sh
+!local-overlays/hermes-docker-connect.sh
 
 # Databases & runtime state
 *.db
