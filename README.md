@@ -36,6 +36,10 @@ backends. See [docs/getting-started.md](docs/getting-started.md).
   workspace, and writes a verdict back — `board → worker → verdict → done`, no human in
   the loop. Demonstrated end-to-end; driven by config keys, no custom code. See
   [`examples/autonomous-loop/`](examples/autonomous-loop/README.md).
+- **Kanban workflow harness** — enforces a per-role transition matrix (coding → QA →
+  human architect → done). Agents cannot complete their own tasks or reach the board
+  through the CLI, sqlite or the dashboard; their only exit is `kanban_handoff`. See
+  [docs/kanban-harness.md](docs/kanban-harness.md).
 - **Optional custom dispatcher (reference logic)** — for when you outgrow the native one:
   per-profile cooldowns, fast-retry / failure-escalation windows, notify-only-on-change
   (see [`hooks/`](hooks/per-profile-dispatcher/handler.py)). Pure logic is real; backend

@@ -1,0 +1,6 @@
+name: kanban-harness
+version: 0.1.0
+description: "Workflow harness for the Hermes kanban board: enforces a per-role transition matrix (coding -> QA -> architect/human -> done) at the tool layer. Refuses forbidden transitions (complete/block/unblock by agents) and kanban side doors (hermes kanban CLI verbs, kanban.db writes, dashboard API) via pre_tool_call, and provides the kanban_handoff worker tool. Fail-CLOSED for kanban mutations."
+author: "Hermes Workflows"
+hooks:
+  - pre_tool_call

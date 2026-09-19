@@ -105,6 +105,34 @@ The backend adapter stubs (`fetch_tasks`, `dispatch_task`, …) are **never**
 called — they raise `NotImplementedError` by design — so there is zero risk to
 the live install.
 
+### 2d. kanban workflow harness — `tests/smoke/kanban-harness.sh`
+Runs `tests/smoke/test_kanban_harness.py` with the hermes-agent venv python
+(`HERMES_AGENT_VENV`, source at `HERMES_AGENT_SRC`) against the **real**
+`kanban_db`, in a scratch `HERMES_HOME`. The suite hard-refuses the real
+`~/.hermes`. It registers `plugins/kanban-harness` through the real
+`PluginContext` and asserts:
+
+- every forbidden transition is refused through the real `pre_tool_call`
+  pipeline and the task is left unchanged: complete/block/unblock by coding,
+  QA or an unknown profile, and hand-offs of someone else's task;
+- every side door is refused: mutating `hermes kanban` verbs, sqlite /
+  `kanban_db` / dashboard-API access, and writes to the DB file. Read-only CLI
+  verbs and ordinary commands stay allowed;
+- an unreadable harness config fails closed;
+- the allowed path works end to end: the dispatcher spawns the coder, which
+  hands off; the dispatcher spawns QA, which hands off; the task parks in the
+  human lane (`blocked`, not spawned); the human's real `hermes kanban
+  complete` CLI reaches `done`. The human rework path (comment, reassign,
+  unblock, respawn) works too;
+- one refused and one allowed case for each config option: per-board
+  matrices, the sub-task gate (`when: non_root`, including the `Level: 0`
+  marker), per-role shell verbs, warn vs enforce mode (log lines), human-lane
+  status `ready`, the table being the only source of permissions, and an
+  invalid table being rejected.
+
+SKIPs when the agent venv or source is absent. Details:
+[kanban-harness.md](kanban-harness.md).
+
 ---
 
 ## Layer 3 — `e2e` (gated, hard-isolated)

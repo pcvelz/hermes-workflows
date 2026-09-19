@@ -1,0 +1,102 @@
+# kanban-harness — the board transition matrix, as data.
+#
+# Copy to harness.yaml (git-ignored) next to this file, or point KANBAN_HARNESS_FILE at
+# your own copy. With no harness.yaml the plugin enforces THIS template.
+#
+# The plugin has no workflow built in: it only interprets `transitions`. For every agent
+# kanban tool call and every `hermes kanban <verb>` in a shell/code tool, it looks for a
+# row granting the caller's role that action; anything not listed is refused.
+#
+# This template reproduces the default matrix (see docs/kanban-harness.md):
+#   the first work column -> ready -> running    dispatcher only (promote + spawn assignee)
+#   coding  -> hand-off to qa                    kanban_handoff
+#   qa      -> hand-off to architect             kanban_handoff (task parked, see status)
+#   architect (a human) -> done, or rework       the human's own CLI / dashboard only
+# No row lets an agent complete, block, unblock, promote, assign or reassign.
+
+enabled: true
+
+# enforce: refuse and return a tool error.  warn: log the would-be refusal, let it run
+# (roll the harness out beside a live run first). Refusals are logged in both modes.
+mode: enforce
+# log_file: /path/to/kanban-harness.log      # default: $HERMES_HOME/logs/kanban-harness.log
+
+# ----------------------------------------------------------------------------------
+# Default matrix (used by every board below that does not override a key).
+# ----------------------------------------------------------------------------------
+roles:
+  coding:
+    profiles: [coder]
+  qa:
+    profiles: [qa-tester]
+  architect:
+    # A human lane: the assignee name is used verbatim and must NOT be a Hermes
+    # profile, so the dispatcher never spawns a worker for it.
+    human: true
+    assignee: architect
+  # A role with no `profiles` key is a single profile named as its own role, e.g.
+  # planner: {}
+
+transitions:
+  # from_role   who may move            (a role above)
+  # action      complete | block | unblock | create | link | handoff | <any
+  #             `hermes kanban` verb, e.g. comment, assign, promote …>
+  # via         tool (default) and/or shell (`hermes kanban <action>` from a shell)
+  # when        any (default) | root | non_root   — level 0 = no parent task, or the
+  #             task body matches root_marker
+  # to_role / status   handoff only: the target role and the task's status after the
+  #             hand-off (ready = the dispatcher spawns the target; blocked = parked
+  #             until a human acts, which also keeps it out of stranded_in_ready alerts)
+  - {from_role: coding, action: handoff, to_role: qa, status: ready}
+  - {from_role: qa, action: handoff, to_role: architect, status: blocked}
+  - {from_role: coding, action: create}          # sub-tasks / fan-out keep working
+  - {from_role: coding, action: link}
+  - {from_role: qa, action: create}
+  - {from_role: qa, action: link}
+  # Sub-task gate: uncomment to let QA finish level-1 tasks itself, so batches of
+  # children don't all park with the human; level-0 tasks still need the human.
+  # - {from_role: qa, action: complete, when: non_root}
+  # Scripted fan-out from a shell (still no complete/block/unblock from a shell):
+  # - {from_role: coding, action: create, via: [tool, shell]}
+  # - {from_role: coding, action: link, via: [tool, shell]}
+
+# Level-0 marker (Python regex) in a task body; tasks without parents are level 0 too.
+root_marker: '(?mi)^\s*Level:\s*0\s*$'
+
+# Moves open to every profile, role or not: reading the board and talking on it.
+always_allow:
+  tools: [kanban_show, kanban_list, kanban_heartbeat, kanban_comment]
+  shell_verbs: [list, ls, show, tail, watch, stats, diagnostics, context, runs, log,
+                help, "boards list", "boards ls"]
+
+# Profiles that are in no role: deny (default) | allow.
+unknown_profile: deny
+
+side_doors:
+  enabled: true
+  # Refused anywhere in shell / code tool arguments (Python regexes).
+  deny_patterns:
+    - {pattern: 'kanban\.db', label: the kanban database file}
+    - {pattern: '\bkanban_db\b', label: the kanban_db module}
+    - {pattern: '/api/plugins/kanban\b', label: the dashboard kanban API}
+  # Refused as a file path for file tools.
+  deny_path_patterns: ['kanban\.db', '/kanban/boards(/|$)']
+
+# ----------------------------------------------------------------------------------
+# Boards. A list of slugs uses the default matrix for each; a mapping lets a board
+# override any key above (roles, transitions, always_allow, unknown_profile,
+# root_marker, side_doors — each replaced as a whole). "*" = every other board;
+# without "*", boards not listed are not harnessed.
+# ----------------------------------------------------------------------------------
+boards:
+  "*": {}
+  # migration:
+  #   roles:
+  #     coding: {profiles: [coder]}
+  #     qa: {profiles: [qa-tester]}
+  #     architect: {human: true, assignee: <your-name>}
+  #   transitions:
+  #     - {from_role: coding, action: handoff, to_role: qa, status: ready}
+  #     - {from_role: qa, action: handoff, to_role: architect, status: blocked}
+  #     - {from_role: qa, action: complete, when: non_root}
+  #     - {from_role: coding, action: create, via: [tool, shell]}

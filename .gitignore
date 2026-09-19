@@ -99,4 +99,5 @@ Thumbs.db
 /examples/*/jobs.json
 /examples/*/MEMORY.seed.md
 /plugins/**/settings.hermes.json
+/plugins/kanban-harness/harness.yaml
 /docker-compose.patches.yml

@@ -66,6 +66,7 @@ case "$CMD" in
     run_layer "SMOKE — LLM"        "$REPO_ROOT/tests/smoke/llm.sh"
     run_layer "SMOKE — bridge"     "$REPO_ROOT/tests/smoke/bridge.sh"
     run_layer "SMOKE — dispatcher" "$REPO_ROOT/tests/smoke/dispatcher.sh"
+    run_layer "SMOKE — kanban harness" "$REPO_ROOT/tests/smoke/kanban-harness.sh"
     ;;
   e2e)
     run_layer "E2E" "$REPO_ROOT/tests/e2e/run.sh"
@@ -75,6 +76,7 @@ case "$CMD" in
     run_layer "SMOKE — LLM"        "$REPO_ROOT/tests/smoke/llm.sh"
     run_layer "SMOKE — bridge"     "$REPO_ROOT/tests/smoke/bridge.sh"
     run_layer "SMOKE — dispatcher" "$REPO_ROOT/tests/smoke/dispatcher.sh"
+    run_layer "SMOKE — kanban harness" "$REPO_ROOT/tests/smoke/kanban-harness.sh"
     run_layer "E2E" "$REPO_ROOT/tests/e2e/run.sh"
     ;;
   -h|--help|help|"")
