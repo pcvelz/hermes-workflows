@@ -127,6 +127,30 @@ proxy requires one).
 > ids (e.g. rewrite `.` to `-`). If you hit 404 errors with a dotted model name, prefer a
 > simple dotless alias registered in your proxy config.
 
+#### Caller identity on a shared local backend
+
+When several agents, Claude Code sessions and scripts share one local proxy, its queue
+shows anonymous rows unless each request says who sent it. The convention is one request
+header:
+
+```
+X-Caller-Purpose: hermes:<profile>[:<board>/<task_id>]
+```
+
+- `<profile>` is the Hermes profile (`HERMES_PROFILE`). Kanban workers add their board
+  and task (`HERMES_KANBAN_BOARD`, `HERMES_KANBAN_TASK`), so a queue row maps straight to
+  a card on the board.
+- The value has at most 48 characters, from `[A-Za-z0-9._:/-]`. If board and task don't
+  fit, the board is dropped: `hermes:<profile>:<task_id>`.
+- Send it only to non-Anthropic endpoints; `api.anthropic.com` never needs it.
+- Other scripts use their own slug, e.g. `X-Caller-Purpose: commit-subject`.
+
+Upstream hermes-agent does not send this header. Add it with a local patch to
+`agent/anthropic_adapter.py` (see [patches.md](patches.md)): in `build_anthropic_kwargs`,
+for third-party endpoints, merge the header into `kwargs["extra_headers"]`. The llama-swap
+fork used in development records it as the request's `metadata.purpose`. Any proxy that
+logs request headers can use it the same way.
+
 ### 2. Anthropic Cloud (Claude)
 
 ```yaml
