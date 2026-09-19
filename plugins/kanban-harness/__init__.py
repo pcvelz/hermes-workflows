@@ -133,8 +133,14 @@ def _normalize_matrix(raw, where):
         via = [str(v) for v in _as_list(t.get("via") or "tool")]
         if any(v not in _VIA for v in via):
             raise HarnessConfigError(f"{w}: via must be from {_VIA}")
+        req = t.get("requires")
+        if req is not None:
+            if not isinstance(req, dict) or not req.get("files"):
+                raise HarnessConfigError(f"{w}: requires needs files: <glob>")
+            req = {"files": str(req["files"]),
+                   "matches": re.compile(req["matches"]) if req.get("matches") else None}
         row = {"from_role": t["from_role"], "action": action, "when": when, "via": via,
-               "to_role": t.get("to_role"), "status": t.get("status")}
+               "to_role": t.get("to_role"), "status": t.get("status"), "requires": req}
         if action == _HANDOFF:
             if row["to_role"] not in roles:
                 raise HarnessConfigError(f"{w}: handoff needs a known to_role")
@@ -308,6 +314,50 @@ def granted(matrix, role, action, via, is_root=None):
     return rows
 
 
+def _current_workspace():
+    return os.environ.get("HERMES_KANBAN_WORKSPACE", "").strip() or None
+
+
+def evidence_missing(row, workspace):
+    """Why ``row``'s ``requires`` precondition fails in ``workspace``, or None when met."""
+    req = row.get("requires")
+    if not req:
+        return None
+    if not workspace or not os.path.isdir(workspace):
+        return f"no workspace to check for evidence ({req['files']})"
+    import glob as _glob
+    files = [p for p in _glob.glob(os.path.join(workspace, req["files"]), recursive=True)
+             if os.path.isfile(p)]
+    if not files:
+        return f"no file matching {req['files']!r} in the workspace"
+    if req["matches"] is None:
+        return None
+    for p in files:
+        try:
+            with open(p, encoding="utf-8", errors="replace") as fh:
+                if req["matches"].search(fh.read(1_000_000)):
+                    return None
+        except OSError:
+            continue
+    return (f"no file matching {req['files']!r} contains "
+            f"/{req['matches'].pattern}/")
+
+
+def with_evidence(rows, workspace):
+    """Split granting rows into (rows whose evidence is met, reasons for the rest)."""
+    ok, reasons = [], []
+    for t in rows:
+        why = evidence_missing(t, workspace)
+        (reasons.append(why) if why else ok.append(t))
+    return ok, reasons
+
+
+def _evidence_refusal(role, profile, what, reasons):
+    return (f"[kanban-harness] {what} refused for role {role['name']!r} (profile "
+            f"{profile!r}): this move requires evidence, and {'; '.join(reasons)}. "
+            f"Produce it, then try again. The tool was NOT run.")
+
+
 def _refusal(matrix, role, profile, what):
     if role is None:
         return (f"[kanban-harness] {what} refused: profile {profile!r} has no role in this "
@@ -325,7 +375,7 @@ def _refusal(matrix, role, profile, what):
             f"The tool was NOT run.")
 
 
-def check_kanban_tool(matrix, tool_name, profile, is_root=None):
+def check_kanban_tool(matrix, tool_name, profile, is_root=None, workspace=None):
     """Return a refusal string for a kanban_* tool, or None to allow."""
     if tool_name in matrix["always_tools"]:
         return None
@@ -333,9 +383,11 @@ def check_kanban_tool(matrix, tool_name, profile, is_root=None):
     if role is None and matrix["unknown_profile"] == "allow":
         return None
     action = tool_name[len(_TOOL_PREFIX):]
-    if granted(matrix, role, action, "tool", is_root):
-        return None
-    return _refusal(matrix, role, profile, tool_name)
+    rows = granted(matrix, role, action, "tool", is_root)
+    if not rows:
+        return _refusal(matrix, role, profile, tool_name)
+    ok, reasons = with_evidence(rows, workspace)
+    return None if ok else _evidence_refusal(role, profile, tool_name, reasons)
 
 
 def _segments(text):
@@ -378,9 +430,13 @@ def check_side_door(matrix, tool_name, args, profile=None):
                 continue
             if role is None and matrix["unknown_profile"] == "allow":
                 continue
-            if granted(matrix, role, verb, "shell"):
-                continue
-            return _refusal(matrix, role, profile, f"{tool_name} `hermes kanban {verb}`")
+            what = f"{tool_name} `hermes kanban {verb}`"
+            rows = granted(matrix, role, verb, "shell")
+            if not rows:
+                return _refusal(matrix, role, profile, what)
+            ok, reasons = with_evidence(rows, _current_workspace())
+            if not ok:
+                return _evidence_refusal(role, profile, what, reasons)
         for rx, label in matrix["deny_patterns"]:
             if rx.search(val):
                 return (f"[kanban-harness] {tool_name} refused: it reaches {label}, a side "
@@ -442,7 +498,8 @@ def _on_pre_tool_call(tool_name=None, args=None, **kwargs):
                       or os.environ.get("HERMES_KANBAN_TASK", "")).strip()
             msg = check_kanban_tool(
                 matrix, tool_name, profile,
-                is_root=lambda: _db_task_is_root(matrix, board, tid) if tid else True)
+                is_root=lambda: _db_task_is_root(matrix, board, tid) if tid else True,
+                workspace=_current_workspace())
         else:
             board = os.environ.get("HERMES_KANBAN_BOARD", "").strip() or None
             matrix = matrix_for(cfg, board)
@@ -506,15 +563,18 @@ def _err(msg):
 
 
 def handoff(conn, kb, matrix, task_id, profile, summary, to_role=None,
-            expected_run_id=None, is_root=None):
+            expected_run_id=None, is_root=None, workspace=None):
     """Perform a handoff row. Returns (ok, payload_or_error). Pure w.r.t. env."""
     role = role_for(matrix, profile)
     rows = granted(matrix, role, _HANDOFF, "tool", is_root)
     if to_role:
         rows = [t for t in rows if t["to_role"] == to_role]
+    what = _HANDOFF_TOOL + (f" to {to_role!r}" if to_role else "")
     if not rows:
-        return False, _refusal(matrix, role, profile,
-                               _HANDOFF_TOOL + (f" to {to_role!r}" if to_role else ""))
+        return False, _refusal(matrix, role, profile, what)
+    rows, reasons = with_evidence(rows, workspace)
+    if not rows:
+        return False, _evidence_refusal(role, profile, what, reasons)
     if len(rows) > 1:
         return False, (f"several hand-off targets are allowed "
                        f"({', '.join(t['to_role'] for t in rows)}); pass to_role.")
@@ -558,6 +618,12 @@ def handoff(conn, kb, matrix, task_id, profile, summary, to_role=None,
             # A 'blocked' event makes the block sticky: recompute_ready won't promote it.
             kb._append_event(conn, task_id, "blocked", {
                 "reason": f"awaiting {nxt['name']} ({target})"}, run_id=run_id)
+        else:
+            # The task re-entered 'ready': record it as such, so age-based checks
+            # (stranded_in_ready) measure from now, not from the card's creation.
+            kb._append_event(conn, task_id, "promoted", {
+                "by": "kanban-harness", "reason": f"handed off to {nxt['name']}"},
+                run_id=run_id)
     kb.add_comment(conn, task_id, profile, f"[hand-off -> {nxt['name']} ({target})]\n{summary}")
     return True, {"task_id": task_id, "handed_off_to": target, "role": nxt["name"],
                   "human": nxt["human"], "status": new_status}
@@ -589,7 +655,8 @@ def _handle_handoff(args, **kw):
         try:
             ok, res = handoff(conn, kb, matrix, tid, _current_profile(), args.get("summary"),
                               to_role=args.get("to_role"), expected_run_id=run_id,
-                              is_root=lambda: _db_task_is_root(matrix, board, tid))
+                              is_root=lambda: _db_task_is_root(matrix, board, tid),
+                              workspace=_current_workspace())
         finally:
             conn.close()
     except Exception as exc:

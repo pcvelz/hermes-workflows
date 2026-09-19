@@ -392,6 +392,38 @@ class Options(HarnessCase):
             self.assertIsNone(blocked("kanban_complete", {"task_id": "t_x"}))
             self.assertIsNotNone(blocked("kanban_block", {"task_id": "t_x"}))
 
+    def test_handoff_requires_evidence(self):
+        ws = Path(tempfile.mkdtemp(dir=_HOME))
+        cfg = textwrap.dedent(_BASE) + textwrap.dedent("""
+        transitions:
+          - {from_role: coding, action: handoff, to_role: qa, status: ready,
+             requires: {files: "findings/**/*.md", matches: '(?m)^Verified: yes$'}}
+        """)
+        tid = self.new_running_task("coder")
+        os.environ["HERMES_KANBAN_WORKSPACE"] = str(ws)
+        try:
+            with Config(cfg), Worker(tid, "coder"):
+                res = call_tool("kanban_handoff", {"summary": "done"})  # no file at all
+                self.assertIn("requires evidence", res.get("error", ""), res)
+                (ws / "findings").mkdir()
+                (ws / "findings" / "b02.md").write_text("rows compared\nVerified: no\n")
+                res = call_tool("kanban_handoff", {"summary": "done"})  # file, no match
+                self.assertIn("contains", res.get("error", ""), res)
+                self.assertEqual(self.task(tid).status, "running")
+                (ws / "findings" / "b02.md").write_text("rows compared\nVerified: yes\n")
+                self.assertTrue(call_tool("kanban_handoff", {"summary": "done"}).get("ok"))
+        finally:
+            os.environ.pop("HERMES_KANBAN_WORKSPACE", None)
+        self.assertEqual(self.task(tid).status, "ready")
+
+    def test_ready_handoff_records_promotion(self):
+        tid = self.new_running_task("coder")
+        with Worker(tid, "coder"):
+            self.assertTrue(call_tool("kanban_handoff", {"summary": "v1"}).get("ok"))
+        kinds = [e.kind for e in kb.list_events(self.conn, tid)]
+        self.assertGreater(kinds.index("promoted", kinds.index("handed_off")),
+                           kinds.index("handed_off"), kinds)
+
     def test_bad_config_rejected(self):
         cfg = textwrap.dedent(_BASE) + "transitions:\n  - {from_role: qa, action: handoff, to_role: nobody, status: ready}\n"
         with Config(cfg), Worker("t_x", "qa-tester"):

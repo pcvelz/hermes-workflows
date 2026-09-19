@@ -82,7 +82,8 @@ Row fields:
 | `action` | the kanban tool name without `kanban_` (`complete`, `block`, `unblock`, `create`, `link`, …), or `handoff`. With `via: shell`, the `hermes kanban <action>` verb, so any CLI verb (`comment`, `assign`, `promote`, …) can be granted to a role. |
 | `via` | `tool` (default), `shell`, or both |
 | `when` | `any` (default), `root` or `non_root`. A task is **level 0 (root)** when it has no parent task, or its body matches `root_marker`. |
-| `to_role`, `status` | `handoff` only: the target role, and the task's status afterwards. `ready` makes the dispatcher spawn the target. `blocked` parks the task (sticky) until a human acts. |
+| `to_role`, `status` | `handoff` only: the target role, and the task's status afterwards. `ready` makes the dispatcher spawn the target, and records a `promoted` event so age-based checks count from the hand-off. `blocked` parks the task (sticky) until a human acts. |
+| `requires` | Optional evidence the move needs: `{files: <glob>, matches: <regex>}`, relative to the worker's workspace (`HERMES_KANBAN_WORKSPACE`, `**` allowed). The move is refused until some file matches the glob and, if `matches` is given, its content matches the regex. Use it so a hand-off with no evidence can't pass, e.g. a findings file with a `Verified: yes` line. |
 
 ### The configuration options
 
@@ -113,7 +114,18 @@ Row fields:
    and will be flagged by that rule as it ages.
 
 Tasks correctly queued behind `max_in_progress` still trigger `stranded_in_ready`. That
-is an upstream diagnostics issue the harness does not change.
+is an upstream diagnostics issue the harness does not change. The rule scores one task at
+a time and never sees the dispatcher's capacity, so fixing it means patching every
+diagnostics caller in hermes-agent.
+
+**Review cards.** Under the harness, a scripted "review card" (a script that creates a
+card and blocks it for the human) is replaced by a `handoff` row to the human role; the
+hand-off parks the task itself for the human.
+
+**Human completion in the run list.** When the human completes a parked task, the
+hermes-agent run list shows a zero-length run under the human's name (e.g. `@peter 0s`).
+That is the human's action, not a worker run. Labelling it would need a hermes-agent
+display patch.
 
 ## How it works
 

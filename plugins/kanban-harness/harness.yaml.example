@@ -44,6 +44,8 @@ transitions:
   # via         tool (default) and/or shell (`hermes kanban <action>` from a shell)
   # when        any (default) | root | non_root   — level 0 = no parent task, or the
   #             task body matches root_marker
+  # requires    optional evidence: {files: <glob in the worker's workspace>,
+  #             matches: <regex a matching file must contain>}; refused until met
   # to_role / status   handoff only: the target role and the task's status after the
   #             hand-off (ready = the dispatcher spawns the target; blocked = parked
   #             until a human acts, which also keeps it out of stranded_in_ready alerts)
@@ -56,6 +58,9 @@ transitions:
   # Sub-task gate: uncomment to let QA finish level-1 tasks itself, so batches of
   # children don't all park with the human; level-0 tasks still need the human.
   # - {from_role: qa, action: complete, when: non_root}
+  # Evidence gate: refuse a hand-off until the workspace holds matching evidence.
+  # - {from_role: coding, action: handoff, to_role: qa, status: ready,
+  #    requires: {files: "findings/**/*.md", matches: '(?m)^Verified: yes$'}}
   # Scripted fan-out from a shell (still no complete/block/unblock from a shell):
   # - {from_role: coding, action: create, via: [tool, shell]}
   # - {from_role: coding, action: link, via: [tool, shell]}
