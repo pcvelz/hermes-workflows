@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/launchd/com.hermes-workflows.escalator.plist.example -->
+<!--
+  com.hermes-workflows.escalator.plist.example
+  ============================================
+  launchd user agent template for the kanban escalator: the reconciler that
+  gives a card back the lives the machine took, and tells a human about every
+  card that is still stuck.
+
+  This is an INTERVAL job — it wakes every 60 s, does one pass, and exits.
+  Zero idle cost. See scripts/resilience/README.md and docs/resilience.md.
+
+  TWO RULES THAT ARE NOT OPTIONAL ON macOS
+  -----------------------------------------
+  1. The payload MUST live under __HERMES_HOME__, never under a documents
+     folder. TCC denies a launchd-context process even READING a script under
+     ~/Documents; the job then dies with "Operation not permitted", usually
+     invisibly, because a manual run works fine. Keep the repo copy canonical
+     and COPY the scripts in:
+
+       mkdir -p __HERMES_HOME__/launchd-bin
+       cp __HERMES_WORKFLOWS_DIR__/scripts/resilience/*.py \
+          __HERMES_HOME__/launchd-bin/
+
+     Re-copy after every edit. Symlinks do NOT help — following one back into
+     the documents folder re-triggers the block.
+
+  2. Run it with an ABSOLUTE, NON-SHIM python. The Hermes venv interpreter is
+     the safe choice; the system /usr/bin/python3 may shim elsewhere and lacks
+     PyYAML (the escalator then falls back to JSON config, which is probably
+     not what you wrote).
+
+  INSTALL: run `python3 scripts/install.py` from the repo root. It fills every
+  placeholder, registers the job and verifies the loaded copy. The manual steps
+  below are what it does, kept as reference.
+
+  INSTALL STEPS
+  -------------
+  1. Copy the payload in (see rule 1 above).
+
+  2. Copy this file:
+       cp launchd/com.hermes-workflows.escalator.plist.example \
+          ~/Library/LaunchAgents/com.hermes-workflows.escalator.plist
+
+  3. Replace ALL __PLACEHOLDER__ tokens with absolute paths.
+     launchd does NOT expand ~ or $HOME.
+
+       __HERMES_HOME__          — e.g. /Users/yourname/.hermes
+       __HERMES_WORKFLOWS_DIR__ — absolute path to this repo
+       __BOARD__                — board slug (use "default" for the main board)
+
+  4. DRY RUN FIRST, by hand, before loading anything. It reads only and sends
+     nothing:
+       __HERMES_HOME__/hermes-agent/venv/bin/python3 \
+         __HERMES_HOME__/launchd-bin/escalator.py \
+         --db __HERMES_HOME__/kanban.db --board __BOARD__ \
+         --config __HERMES_HOME__/resilience.yaml --json
+
+  5. Load the agent:
+       launchctl load -w ~/Library/LaunchAgents/com.hermes-workflows.escalator.plist
+
+  6. Verify the LAUNCHD path, not a manual run:
+       launchctl kickstart -k gui/$(id -u)/com.hermes-workflows.escalator
+       tail -20 __HERMES_HOME__/logs/escalator.log
+     A "board=... apply=true ..." line is success. "Operation not permitted"
+     means rule 1 was not followed.
+-->
+<plist version="1.0">
+<dict>
+
+  <key>Label</key>
+  <string>com.hermes-workflows.escalator</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Absolute path to the Hermes runtime directory. No ~ expansion. -->
+    <key>HERMES_HOME</key>
+    <string>__HERMES_HOME__</string>
+
+    <!--
+      Absolute path to the hermes-workflows checkout. launchd runs a copy of the
+      escalator outside it, so the copy cannot find the gated harness on its own;
+      without this every profile pages as harness_not_loaded.
+    -->
+    <key>HERMES_WORKFLOWS_REPO</key>
+    <string>__HERMES_WORKFLOWS_DIR__</string>
+
+    <!--
+      Boards this job must NEVER write to, even with --apply. Use it for any
+      board with a supervised run in flight: the reconciler refuses and exits
+      non-zero rather than touching it. Comma-separated slugs.
+    -->
+    <key>HERMES_ESCALATOR_READONLY_BOARDS</key>
+    <string></string>
+
+    <!--
+      Escalation credentials are NOT set here. They resolve at send time from
+      the OS keychain (a launchd job has no TTY and would hang forever on a
+      vault unlock prompt) or from the gateway profile env file. Putting a
+      token in a plist puts it in a world-readable file — do not.
+    -->
+
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <!--
+    ProgramArguments: one reconcile + escalate pass.
+
+    --apply lets it write to the board (clear a machine-caused failure counter
+    and return the card to ready) AND send messages. Drop --apply for a
+    reporting-only deployment: it then reads only and delivers nothing.
+
+    ONE PUSH PER STUCK CARD. `stranded` and `stalled` are recomputed every
+    tick rather than being events, so a page log is what stops a hung card
+    pushing every 60s forever. It defaults to <db dir>/.escalator_pages.json —
+    no flag needed — but that directory MUST be writable by this job. Pass
+    --state explicitly if your board DB lives somewhere read-only, and
+    --repeat-after to change the 6h re-page window.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__HERMES_HOME__/hermes-agent/venv/bin/python3</string>
+    <string>__HERMES_HOME__/launchd-bin/escalator.py</string>
+    <string>--db</string>
+    <string>__HERMES_HOME__/kanban.db</string>
+    <string>--board</string>
+    <string>__BOARD__</string>
+    <string>--config</string>
+    <string>__HERMES_HOME__/resilience.yaml</string>
+    <string>--apply</string>
+  </array>
+
+  <!--
+    StartInterval: one pass per minute, matching the dispatcher tick. A card
+    that gets stuck is therefore escalated within ~60 s, and a machine-caused
+    block is undone within the same window.
+  -->
+  <key>StartInterval</key>
+  <integer>60</integer>
+
+  <!-- Fire once at load so a reboot does not leave a stuck card unreported. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- No KeepAlive — each pass is short-lived and exits. -->
+
+  <key>StandardOutPath</key>
+  <string>__HERMES_HOME__/logs/escalator.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__HERMES_HOME__/logs/escalator.error.log</string>
+
+</dict>
+</plist>

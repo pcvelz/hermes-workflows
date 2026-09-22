@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/scripts/backup/kanban-backup.example.sh
 # kanban-backup.example.sh
 # =========================
 # SQLite online backup + retention skeleton for the Hermes kanban (and optionally

@@ -1,0 +1,181 @@
+# @user-gated
+# Board columns, roles and the moves each role may make.
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/board.yaml
+# Live deployments symlink this file into the runtime home; never copy it.
+#
+# Documentation-driven: this file is written before the implementation and is
+# the specification the implementation answers to.
+
+board:
+
+  # `requires` is checked to ENTER a column. `requires_to_leave` is checked to
+  # leave one. A card is born in refinement, so a condition there can only be
+  # about leaving; everywhere else the condition guards the way in.
+  #
+  # `status` is the runtime status the column lives on. The dispatcher reads
+  # statuses and never reads a label, so the status is what SEPARATES two
+  # columns; the name is only for the person looking at the board. A column
+  # without a status is a label over someone else's column.
+  columns:
+
+    refinement:
+      status: triage
+      exit_to: [waiting, to_do, archived]
+      requires_to_leave:
+        acceptance_criteria: true
+
+    waiting:
+      status: todo
+      exit_to: [to_do]
+      requires:
+        comment: true
+        references_card: true
+      auto_advance:
+        when:
+          referenced_card_reaches: [user_review, done]
+        move_to: to_do
+        comment: "referenced card {ref} reached {state}"
+
+    # The column a worker is picked from: the dispatcher claims `ready` and
+    # nothing else. Keyed to_do so it cannot be misread as the `todo` status,
+    # which is the waiting column above.
+    to_do:
+      status: ready
+      exit_to: [in_progress]
+
+    in_progress:
+      status: running
+      exit_to: [to_do, user_review, question]
+
+    question:
+      status: blocked
+      exit_to: [to_do, waiting, archived]
+      requires:
+        comment: true
+        assignee: user
+
+    # Finished work waiting for the human, and deliberately NOT the runtime's
+    # own `review` status: there a dispatcher claims the card and an agent
+    # reviewer may merge and set done. On `scheduled` the runtime spawns
+    # nothing even for a card assigned to a real profile, and complete refuses
+    # the status outright — so the accept command below is the only door to
+    # done by construction rather than by convention.
+    user_review:
+      status: scheduled
+      exit_to: [done, to_do]
+      requires:
+        comment: true
+        assignee: user
+      human_only_exit: true
+
+    done:
+      status: done
+      enter: [user]
+      exit_to: [archived, user_review]    # user_review = reopen, only without an accept
+
+    archived:
+      status: archived
+      exit_to: [user_review]              # reopen, only without an accept
+
+  # THE TABLE. Every move is (from, to, by). Anything not listed is refused.
+  # Signed off row by row (docs/harness-contract.md), and that document's table
+  # is a readable copy of this one: a test fails when they disagree.
+  # by: user | qa | coding | planner | dispatcher | reconciler. scout has no
+  # moves until its contract is built.
+  moves:
+    - {from: refinement,  to: waiting,     by: user,       when: card has a parent link}
+    - {from: refinement,  to: to_do,       by: user,       when: acceptance criteria present}
+    - {from: refinement,  to: archived,    by: user,       when: reason comment}
+    - {from: waiting,     to: to_do,       by: reconciler, when: every parent reached user_review or done; comment written}
+    - {from: waiting,     to: to_do,       by: user}
+    - {from: to_do,       to: in_progress, by: dispatcher, when: claim and spawn the assignee}
+    - {from: in_progress, to: to_do,       by: coding,     when: hand-off to qa, summary required}
+    - {from: in_progress, to: to_do,       by: qa,         when: rework to coding, reason required}
+    - {from: in_progress, to: to_do,       by: dispatcher, when: crash, timeout or reclaim requeue}
+    - {from: in_progress, to: question,    by: coding,     when: comment required; assignee becomes user}
+    - {from: in_progress, to: question,    by: qa,         when: comment required; assignee becomes user}
+    - {from: in_progress, to: question,    by: dispatcher, when: breaker auto-block; the escalator pages}
+    - {from: in_progress, to: question,    by: reconciler, when: the run exhausted its budget or crashed for a reason that was not waiting; retry limit 1, so this happens on the first occurrence; a wait-class failure is a queue and never counts}
+    - {from: refinement,  to: to_do,       by: reconciler, when: split card born from that block; assignee planner; carries the blocked card as parent, its run history and its last hand-over verbatim}
+    - {from: refinement,  to: to_do,       by: planner,    when: a child of its cut; acceptance criteria, parent link, budget estimate in turns and hand-over form present; assignee a lane}
+    - {from: in_progress, to: user_review, by: planner,    when: cut handed off; summary names the children and what made the original too big; assignee becomes user}
+    - {from: in_progress, to: question,    by: planner,    when: it lacks what it needs to cut; comment required; assignee becomes user}
+    - {from: in_progress, to: user_review, by: qa,         when: summary required; assignee becomes user}
+    - {from: question,    to: to_do,       by: user}
+    - {from: question,    to: waiting,     by: user,       when: parent link required}
+    - {from: question,    to: archived,    by: user,       when: reason comment}
+    - {from: user_review, to: done,        by: user,       when: accept only; writes the trace}
+    - {from: user_review, to: to_do,       by: user,       when: rework; reason required}
+    - {from: done,        to: archived,    by: user}
+    - {from: done,        to: archived,    by: reconciler, when: done for 30 days; the clock archives done cards only}
+    - {from: done,        to: user_review, by: user,       when: reopen; only when there is no accept trace}
+    - {from: archived,    to: user_review, by: user,       when: reopen; only when there is no accept trace}
+
+  archiving:
+    # The clock archives DONE cards and nothing else. A human may archive from
+    # any column that lists archived as an exit: throwing away a bad idea in
+    # refinement, or a question that turned out to be moot, is a decision, not
+    # a sweep.
+    clock:
+      archives: done_only
+      after: 30d
+    human_may_archive: from_any_column_listing_archived
+
+roles:
+
+  scout:
+    reads: true
+    writes_code: false
+    hands_off_to: coding
+    produces: survey file naming the files to touch, the open questions and the existing tests
+
+  planner:
+    reads: true
+    writes_code: false
+    hands_off_to: [coding, qa]
+    may_not: [done, archived, spawn]
+    receives: split cards from a budget-exhaustion or non-wait-crash block
+    produces: child cards, one kind of judgement each, each fitting its budget
+
+  coding:
+    hands_off_to: qa
+    may_not: [done, user_review, archived]
+    evidence:
+      visual_comparison: screenshots of both sides
+      debugging: verbose output and the command that produced it
+      data: counts, the query, and the raw extractor output beside the verdict
+
+  qa:
+    hands_off_to: user
+    may_not: [done, archived]
+    rework_to: to_do
+    verifies_by: a different method than the worker used
+
+  user:
+    human: true
+    owns: [done, archived]
+    receives: user_review, question
+    # The user's moves out of user_review are shipped as our own commands
+    # (scripts/resilience/board_cli.py): accept -- the ONLY path to done -- and
+    # rework. The runtime's complete and promote refuse a card there; its
+    # unblock does NOT (it returns a scheduled card to ready without a reason),
+    # which is why agents are refused `unblock` outright. reopen repairs a card
+    # that reached done or archived without an accept.
+    exits_shipped_by_us: [accept, rework, reopen]
+
+comments:
+  written_as: a defence of the acceptance criteria to the user
+  must_carry: [what was done, how it was checked, evidence paths, what to review first, doubts]
+  # Each acceptance criterion is reported as met, not met, or could not check.
+  # An empty reading is never met without proof it could have found something
+  # (docs/evidence.md).
+  criterion_outcomes: [met, not met, could not check]
+  missing_acceptance_criteria: escalate to the user rather than work around it
+
+# The hand-off form. The harness refuses a kanban_handoff whose summary lacks a
+# `<Field>:` line for any field, whose Files line misses a file the run wrote or
+# changed or names a path that is not work in the work tree (T47), or that
+# says `Could not check: none` after an unrecovered failed tool call. Without this key hand-offs are unchecked, and the escalator pages that.
+handoff:
+  form: ~/.hermes/HANDOVER.md
+  fields: [Done, Method, Files, Result, Could not check, Review first, Doubts]

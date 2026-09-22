@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/providers/llm-providers.example.yaml
 # llm-providers.example.yaml
 #
 # Example provider chain for a Hermes-style autonomous workflow.

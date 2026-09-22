@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/orchestrator/SOUL.md.example
 # SOUL — persona template (role: orchestrator)
 #
 # Hollow skeleton. Copy to SOUL.md (strip .example) and write your agent's identity and voice.

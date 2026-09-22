@@ -381,6 +381,52 @@ PONG
 
 ---
 
+## Step 4b — Start the loop
+
+The board does nothing until a gateway is running: the dispatcher lives inside it.
+One command registers the gateway and the escalator with launchd:
+
+```bash
+python3 scripts/install.py
+```
+
+It writes `~/Library/LaunchAgents/com.hermes-workflows.{gateway,escalator}.plist` from the
+examples in `launchd/`, loads them, waits a few seconds (`HERMES_INSTALL_SETTLE`, default 8),
+then reads each loaded job back with `launchctl print`. A job counts as verified only when
+its live environment matches the file AND it is alive: no non-zero last exit code, and the
+gateway (a KeepAlive job) in state `running`. Loaded is not alive: a job can be registered with
+a perfect environment and be dying every few seconds. A job that has exited is `FAILED`, and the
+line quotes the last lines of its stderr log.
+
+Every job gets one line: `registered`, `unchanged`, `updated`, `reloaded` (the live job had not
+read the file), `skipped` (with the reason) or `FAILED` (with the reason). It exits non-zero
+unless the loop is running. Running it again changes nothing and reports the same truth.
+`--check` reports without writing or loading anything. Options: `--profile`, `--board`,
+`--with backup`, `--with bridge --project-dir DIR`.
+
+### Which profile runs the motor
+
+The dispatcher runs in the gateway of whichever profile sets `kanban.dispatch_in_gateway: true`
+in its own `profiles/<name>/config.yaml`. The root `config.yaml` does not count: that is how a
+profile that did not exist once passed the check. The installer never guesses which profile
+that is:
+
+- `--profile NAME`: that profile must exist and set the key. If it does not exist, the installer
+  refuses, names the path it looked in, and lists the profiles it found.
+- No `--profile`, exactly one profile sets the key: that one is used, and the output names it.
+  In the shipped templates only `orchestrator` sets it, so a fresh checkout needs no flag.
+- No `--profile`, none or several set the key: the installer refuses and lists them. Pass
+  `--profile` for the one that should run the dispatcher.
+
+It refuses rather than asking interactively, so it runs the same from a terminal, a script or
+another agent. There is one dispatcher lock (`.dispatcher.lock`), so only one gateway dispatches
+at a time. Setting the key in several profiles is harmless, but it tells you nothing about which
+gateway holds the lock.
+
+Nothing else in this repo writes into `~/Library/LaunchAgents`: you typing this command is
+the consent. If you already ran upstream `hermes gateway install`, run one gateway, not two;
+the installer refuses while `ai.hermes.gateway` is loaded.
+
 ## Step 5 — Run an end-to-end workflow example
 
 The `examples/` directory contains self-contained workflow examples that exercise the

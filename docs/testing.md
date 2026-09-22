@@ -126,9 +126,11 @@ Runs `tests/smoke/test_kanban_harness.py` with the hermes-agent venv python
   unblock, respawn) works too;
 - one refused and one allowed case for each config option: per-board
   matrices, the sub-task gate (`when: non_root`, including the `Level: 0`
-  marker), per-role shell verbs, warn vs enforce mode (log lines), human-lane
-  status `ready`, the table being the only source of permissions, and an
-  invalid table being rejected.
+  marker), per-role shell verbs, human-lane status `ready`, the table being
+  the only source of permissions, and an invalid table being rejected — plus
+  that a config naming the removed `mode:` or `enabled:` fails to load and
+  kanban calls stay refused while it does, and that the default log path is
+  `~/.hermes/logs/kanban-harness.log` regardless of `HERMES_HOME`.
 
 SKIPs when the agent venv or source is absent. Details:
 [kanban-harness.md](kanban-harness.md).

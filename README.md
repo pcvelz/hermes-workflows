@@ -7,6 +7,90 @@
 ![Built on](https://img.shields.io/badge/built%20on-NousResearch%20Hermes-7c3aed.svg)
 ![Backend](https://img.shields.io/badge/backend-bring--your--own-6b7280.svg)
 
+```
+                                       hermes-workflows
+                    agents that hand work to each other, and never to themselves
+
+        scout ────────▶ planner ────────▶ coding ────────▶ qa ────────▶ user (you)   
+        surveys         splits the       does the         checks it     accepts, or sends
+        the code        work up          work             by another    it back. Nobody
+                                                          method        else may.
+
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+ │  refinement ──▶ waiting ──▶ to do ──▶ in progress ──▶ user review ──▶ done ──▶ archived      │
+ │        ▲              │                          │                │           │               │
+ │        │              │ leaves by itself when    │ question       │ only you  │ policy        │
+ │        │              │ the card it waits on     │ (work cannot   │ leave     │ driven        │
+ │        │              │ moves                    │  continue)     │ this      │               │
+ │        └──────────────┴──────────────────────────┴────────────────┘ column    │               │
+ │                        rework always carries the reason it failed             │               │
+ └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+   A worker cannot finish its own card: it hands over, with evidence.
+   A card that gets stuck reaches a human once, not every minute.
+   Columns, roles and the moves each role may make are data: config/board.yaml
+```
+
+```
+ ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
+ │                                    THE AGENTS, AS BOXES                                      │
+ └──────────────────────────────────────────────────────────────────────────────────────────────┘
+
+   ┌───────────────────────────────────┐            ┌───────────────────────────────────┐
+   │  SCOUT                            │            │  PLANNER                          │
+   │  reads the ground, never edits    │──survey───▶│  turns the survey into steps      │
+   ├───────────────────────────────────┤   file     ├───────────────────────────────────┤
+   │  out: the files that need touching│            │  out: a work list, one session of │
+   │       the open questions          │            │       work per item               │
+   │       the tests that already exist│            │                                   │
+   │  may not: edit code, create cards │            │  may not: edit code               │
+   └───────────────────────────────────┘            └─────────────────┬─────────────────┘
+                                                                      │ work list
+                                                                      ▼
+   ┌──────────────────────────────────────────────────────────────────────────────────────────┐
+   │  CODING                                                                                  │
+   ├──────────────────────────────────────────────────────────────────────────────────────────┤
+   │  does the work, and proves it:   visual comparison → screenshots of both sides           │
+   │                                  debugging         → verbose output and the command      │
+   │                                  data              → counts, the query, the raw output   │
+   │                                                                                          │
+   │  may not: set done · set user review · archive · grade its own work                      │
+   └────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                            │ hand-off: a verdict per acceptance criterion,
+                                            │           each with the path to its evidence
+                                            ▼
+   ┌──────────────────────────────────────────────────────────────────────────────────────────┐
+   │  QA                                                                                      │
+   ├──────────────────────────────────────────────────────────────────────────────────────────┤
+   │  re-checks the work by a DIFFERENT method than the one that produced it                  │
+   │                                                                                          │
+   │  two exits, and no third:   evidence holds up → user, in user review                     │
+   │                             evidence is weak  → back to to do, naming what failed        │
+   │                                                                                          │
+   │  may not: set done · archive                                                             │
+   └────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                            │ hand-off: the verdict, the disputes,
+                                            │           and what to look at first
+                                            ▼
+   ┌──────────────────────────────────────────────────────────────────────────────────────────┐
+   │  USER        (you: a human, with no agent profile behind the name)                       │
+   ├──────────────────────────────────────────────────────────────────────────────────────────┤
+   │  the only actor that may set done or archived                                            │
+   │  receives:  user review (the work is finished and wants a verdict)                       │
+   │             question (the work cannot continue until a person decides)                   │
+   │  returns:   done, or back to to do with feedback                                         │
+   └──────────────────────────────────────────────────────────────────────────────────────────┘
+
+   ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌ outside the hand-off chain ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+
+   ┌──────────────────────────────────────────────────────────────────────────────────────────┐
+   │  ESCALATOR   (not an agent: a watcher on a timer)                                        │
+   ├──────────────────────────────────────────────────────────────────────────────────────────┤
+   │  a card that is stuck, stalled or given up reaches a human ONCE, never as a stream       │
+   │  a failure the machine caused costs the card none of its lives                           │
+   └──────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## What is this?
 
 **hermes-workflows** is a generalized, portable foundation for orchestrating multiple
@@ -37,9 +121,30 @@ backends. See [docs/getting-started.md](docs/getting-started.md).
   the loop. Demonstrated end-to-end; driven by config keys, no custom code. See
   [`examples/autonomous-loop/`](examples/autonomous-loop/README.md).
 - **Kanban workflow harness** — enforces a per-role transition matrix (coding → QA →
-  human architect → done). Agents cannot complete their own tasks or reach the board
+  user → done). Agents cannot complete their own tasks or reach the board
   through the CLI, sqlite or the dashboard; their only exit is `kanban_handoff`. See
   [docs/kanban-harness.md](docs/kanban-harness.md).
+- **Three channels an agent learns from** — what belongs where, and what goes wrong
+  when a rule is put in the wrong one: [the card](docs/context-card.md) is long-haul
+  memory, [the system prompt](docs/context-prompt.md) is knowledge and outranks a
+  brief, [the harness](docs/context-harness.md) is what is true right now.
+- **Hand-over as a contract** — one form per transition, checked by the harness: the
+  `Files` line is verified against what the run actually touched, and "could not
+  check" is a first-class outcome. See [docs/handover.md](docs/handover.md).
+- **Limits are tools, never words** — a profile's rights are its toolsets, so a
+  planner that cannot edit or spawn is enforced by what it holds rather than by what
+  it is told. See [docs/enforcement.md](docs/enforcement.md).
+- **Retry once, then re-plan** — a card that exhausts its budget blocks on the first
+  failure and produces a card for the planner carrying the failed run's hand-over
+  verbatim; a busy model is a queue, never a failure. See
+  [docs/splitting.md](docs/splitting.md).
+- **Resilience — wait instead of failing, and always tell a human** — a worker that
+  cannot get model capacity waits against a time budget (`agent.model_wait_budget`)
+  instead of burning a retry count; machine-caused failures are kept off the card's
+  circuit breaker (`kanban.count_toward_breaker`); and no card is ever left silently
+  blocked, given up, or stranded — a human gets a message over Mattermost, Telegram,
+  or ntfy with the card, the error, the resume command, and the worker log. See
+  [docs/resilience.md](docs/resilience.md).
 - **Optional custom dispatcher (reference logic)** — for when you outgrow the native one:
   per-profile cooldowns, fast-retry / failure-escalation windows, notify-only-on-change
   (see [`hooks/`](hooks/per-profile-dispatcher/handler.py)). Pure logic is real; backend
@@ -163,14 +268,43 @@ LLM_BASE_URL=http://127.0.0.1:<PORT> LLM_MODEL=<your-model-alias> LLM_TRANSPORT=
   bash scripts/llm/llm-smoke-test.sh   # prints "ALL CHECKS PASSED" on success
 # (LLM_PROTOCOL is accepted as an alias for LLM_TRANSPORT.)
 
-# 6. Install launchd gateway jobs or bring up the Docker stack
-#    Native: edit templates in launchd/ and `launchctl load`
-#    Docker: cd docker && cp .env.example .env && docker compose up -d
+# 6. Start the loop: ONE command registers the gateway (the motor) and the
+#    escalator with launchd, reads each loaded job back, and names every job it
+#    registered, left unchanged, reloaded or skipped. Safe to re-run.
+python3 scripts/install.py            # --check to report only; --with backup / --with bridge
+#    Docker instead: cd docker && cp .env.example .env && docker compose up -d
 ```
 
 > **Docker networking note:** if your inference backend binds to loopback only, containers
 > cannot reach it. Expose the backend on the docker bridge or use `host.docker.internal`.
 > See [docker/README.md](docker/README.md).
+
+## What Hermes gives you, and what this project adds
+
+Two projects, one loop. If something is not running, this tells you whose it is.
+
+**Hermes (upstream [hermes-agent](https://github.com/NousResearch/hermes-agent)) gives you:**
+- **the board**: the kanban database, its cards, columns and CLI;
+- **the dispatcher**: the loop that claims a ready card and starts a worker for it. It
+  runs *inside the gateway process* when `kanban.dispatch_in_gateway: true`, ticks every
+  60 seconds and holds `.dispatcher.lock`. There is no separate dispatcher daemon, and
+  there must never be a second one: two processes on the same claim path race each other;
+- **the workers**: the agent profiles that do the work;
+- **the tools**: what an agent can call.
+
+**This project adds:**
+- **the transition gate** (`plugins/kanban-harness`): which moves an agent may make on the
+  board, enforced as a refusal rather than a request;
+- **the board spec** (`config/board.yaml`): the columns, roles and who may move what;
+- **the hand-over form**: what a finished card must carry ([docs/handover.md](docs/handover.md));
+- **the resilience watchers**: the escalator, which gives back lives the machine took and
+  pages a person about stuck cards ([docs/resilience.md](docs/resilience.md));
+- **`file_read`** (`plugins/file-read`): reading without the right to write;
+- **the installer** (`scripts/install.py`): starts Hermes's gateway, and with it the
+  dispatcher, under launchd. Hermes ships the motor; nothing starts it on its own.
+
+If the board has ready cards and nothing moves, the motor is not running: run
+`python3 scripts/install.py --check`.
 
 ## What you actually get when it runs
 
@@ -225,6 +359,11 @@ The scaffold defines four roles — `orchestrator`, `coder`, `planner`, `qa-test
 documented in [docs/profiles.md](docs/profiles.md). Each is a conceptual role; give them
 names that make sense for your setup.
 
+## Two things your board does, in plain words
+
+- The harness always refuses an agent's forbidden move — finishing its own card, for example — and logs it to `~/.hermes/logs/kanban-harness.log`; there is no mode to turn that off.
+- **`user_review`** is the column where finished, checked work waits for you. On the board it is a card assigned to `user`; underneath, it sits on a database status (`scheduled`) that no agent is ever started for, so nothing moves it until you run `board_cli.py accept <card>` (done) or `rework <card> --comment "<why>"` (back to the worker).
+
 ## Status — what's real, what's reference, what's not built
 
 > **Proof of concept / scaffold.** One honest table, no overclaiming. "Runs" = works today
@@ -239,6 +378,10 @@ names that make sense for your setup.
 | Upstream `hermes` CLI install (venv, from git) | launchd plist + Docker Compose templates you point at your machine | A turnkey running multi-profile gateway (you wire profiles to your backend) |
 | Layer-1 + Layer-2 memory: per-profile `MEMORY.md` + markdown vault (file-based) | Maintenance crons: prompt templates, not a running schedule (`cron/`) | Per-request credential isolation (key stays in-process today; needs egress proxy) |
 | Skills include-list / whitelist | HA healthcheck dog-food example (`examples/home-assistant-healthcheck/`) | — |
+| Escalator: a stuck, stalled or given-up card reaches a human once, over Mattermost / Telegram / ntfy (`scripts/resilience/`). **Open defect:** machine-caused failures are kept off the card's breaker only when the backend error reaches the board — a worker that gives up on a dead backend exits `1`, and that is still charged to the card ([docs/resilience.md](docs/resilience.md)) | Wait budget + error taxonomy (`agent.model_wait_budget`, `backend_busy`): real and tested, but the agent's retry loop does not consult them yet — that needs a patch to the installed agent ([docs/resilience.md](docs/resilience.md)) | — |
+| Kanban harness: agents cannot finish their own card; hand-off with evidence is the only exit. With `config/board.yaml` deployed it also enforces the board's edges and its `requires` / `requires_to_leave` on every agent hand-off ([docs/kanban-harness.md](docs/kanban-harness.md)) | Board specification `config/board.yaml`: loaded, linted (zero warnings), and composed with the harness — but a policy layer over the runtime's statuses; the CLI and dashboard still show the raw status names, not these columns | **Specification only:** `scout` and `planner` roles — profile templates exist; no dispatch, hand-off or evidence rule enforces their contract yet |
+| user_review and the only door to done: QA's pass waits for you on a status nothing dispatches from; `board_cli.py accept` (also `--children`) is the single way to done, `rework` sends it back with the reason ([docs/board-design.md](docs/board-design.md)) | — | Refusing a *human* who closes a card with the runtime's own `complete` — detected and paged instead, by design, since prevention would need a fork of the agent |
+| Board moves no agent makes: a waiting card leaves by itself when what it waits on arrives, and finished cards are archived on a clock — opt-in, `escalator.py --board-file` | — | — |
 
 See [`docs/`](docs/architecture/README.md) for the per-component breakdown.
 

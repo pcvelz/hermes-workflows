@@ -95,3 +95,20 @@ private vault content (they are gitignored).
 - Keep everything **portable**: placeholders only (`HERMES_HOME`, `~/`, `<your-token>`,
   `<your-domain>`) — never bake in a personal home-directory path.
 - Update docs if you change behavior or the repository layout.
+
+## Releasing — every change ends in one
+
+A change is done when it is released, not when it is committed. Tested work is
+released without waiting to be asked:
+
+1. `bash scripts/test.sh static` and `bash scripts/test.sh smoke` are green.
+2. Commit, push `main`.
+3. Bump from the last tag (`git tag --sort=-creatordate | head -1`): minor for a
+   feature, patch for a fix.
+4. `git tag vX.Y.Z && git push origin vX.Y.Z`
+5. Release notes = what changed since the last tag, grouped by feature.
+6. `gh release create vX.Y.Z --title "vX.Y.Z — <headline>" --notes-file <notes>`, then
+   `gh release view vX.Y.Z` to confirm it is published.
+
+Templates (`*.example`) carry one `Source of truth:` line linking their own file on
+`main`, so every live copy can be checked against the latest release.

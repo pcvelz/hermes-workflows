@@ -1,0 +1,35 @@
+# @user-gated
+# Every code path in the installed hermes-agent that can put a card into `done`
+# or `archived`, each with the reason it is acceptable under
+# docs/harness-contract.md. tests/smoke/test_harness_contract.py (T20) scans the
+# installed agent and fails when this list and the code disagree -- a NEW route
+# fails, and so does a route that VANISHED: on an upgrade someone decides
+# whether it moved or was removed, and that decision is the review.
+#
+# key: <module>:<function>     value: why it is acceptable
+routes:
+  hermes_cli.kanban_db:complete_task: >-
+    The primitive. It refuses a card in `scheduled` (user_review), so from user
+    review the only door to done is board_cli accept (test_board pins that).
+    Every caller is listed below.
+  hermes_cli.kanban_db:archive_task: >-
+    The primitive for archived. Every caller is listed below; the archive clock
+    in the escalator writes its own UPDATE on done cards only.
+  tools.kanban_tools:_handle_complete: >-
+    The kanban_complete tool. No table can grant `complete` (baseline in code);
+    refused for every agent (T1, T2, T10).
+  hermes_cli.kanban:_cmd_complete: >-
+    `hermes kanban complete`. Refused in every agent shell (T10, T24). A user at
+    their own terminal is not blocked; a done without an accept pages (T22).
+  hermes_cli.kanban:_cmd_archive: >-
+    `hermes kanban archive`. Refused in every agent shell (T24); the user's own
+    archive from a column that lists `archived` is a permitted table row.
+  hermes_cli.kanban_swarm:create_swarm: >-
+    `hermes kanban swarm` completes the new swarm's root card at once. Refused
+    in every agent shell (T10); a user's swarm root is done without an accept
+    and pages (T22).
+  plugins.kanban.dashboard.plugin_api:update_task: >-
+    The dashboard API. Its URL is a built-in side door refused in every agent
+    shell and code tool (T9, T10); the user's own dashboard move is audited.
+  plugins.kanban.dashboard.plugin_api:bulk_update: >-
+    The dashboard bulk API. Same side door and the same audit as update_task.

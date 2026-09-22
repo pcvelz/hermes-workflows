@@ -1,0 +1,95 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/scout/config.yaml.example
+# =============================================================================
+# SCOUT — Profile Config Overlay
+# =============================================================================
+#
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: Establishes the ground before work starts. Reads the codebase and the
+#       running system, writes ONE survey file per card, changes nothing.
+#       Does NOT implement, does not create cards, does not grade work.
+#
+# Copy to: $HERMES_HOME/profiles/scout/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override
+# ---------------------------------------------------------------------------
+model:
+  # Reading wide beats reasoning deep here: prefer the larger context window
+  # over the stronger reasoner. See docs/backend.md.
+  default: <YOUR_MODEL_NAME>
+  provider: anthropic
+  base_url: http://127.0.0.1:<PORT>   # your backend; NO /v1 suffix for Anthropic protocol
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # A survey is many small reads and one write. Depth is wasted; turns are not.
+  reasoning_effort: low
+  max_turns: 60
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # Read-only profile by construction.
+  mode: auto
+  cron_mode: deny
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+# The scout never splits work and never closes a card. Its only move is the
+# hand-off defined in config/board.yaml.
+kanban:
+  auto_decompose: false
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Read the code, read the running system, write the survey. No code execution,
+# no database writes.
+platform_toolsets:
+  cli:
+    - file
+    - kanban
+    - lsp
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+
+# ---------------------------------------------------------------------------
+# Browser — override
+# ---------------------------------------------------------------------------
+# A survey states how a thing can be OBSERVED. On a web project that means the
+# scout must be able to load the page itself.
+browser:
+  engine: auto
+  record_sessions: false
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+# One survey, one session. A scout that fans out produces a survey nobody read.
+delegation:
+  max_concurrent_children: 0
+  max_spawn_depth: 0
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+plugins:
+  enabled:
+    - memory-guard
+    - kanban-harness
+
+# =============================================================================
+# REMINDER: the scout changes nothing. Its output is one survey file naming the
+# files to touch, the open questions, the existing tests, and how the thing can
+# be observed. Unverified statements are marked UNVERIFIED, never guessed.
+# =============================================================================

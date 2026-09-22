@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/scripts/memory/vault-hindsight-sync.example.sh
 # vault-hindsight-sync.example.sh
 #
 # Purpose: Incrementally sync changed vault markdown files into Hindsight

@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/orchestrator/config.yaml.example
 # =============================================================================
 # ORCHESTRATOR — Profile Config Overlay
 # =============================================================================
@@ -45,6 +46,7 @@ approvals:
 # ---------------------------------------------------------------------------
 kanban:
   dispatch_in_gateway: true
+  auto_decompose: false   # the harness refuses to load otherwise (T43)
 
   # Declare THIS profile as the dispatch owner. Hermes uses this to route
   # unassigned dispatch work to the orchestrator gateway.

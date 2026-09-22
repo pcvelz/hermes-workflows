@@ -90,6 +90,7 @@ Thumbs.db
 /config/profiles/*/config.yaml
 /config/profiles/*/MEMORY.md
 /config/profiles/*/SOUL.md
+/config/HANDOVER.md
 /cron/jobs.json
 /launchd/*.plist
 /patches/reapply-patches.sh
@@ -100,4 +101,5 @@ Thumbs.db
 /examples/*/MEMORY.seed.md
 /plugins/**/settings.hermes.json
 /plugins/kanban-harness/harness.yaml
+/scripts/resilience/resilience.yaml
 /docker-compose.patches.yml

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/launchd/com.hermes-workflows.bridge.plist.example -->
 <!--
   com.hermes-workflows.bridge.plist.example
   ==========================================
@@ -9,6 +10,10 @@
   The bridge is a dependency-free Python HTTP service that exposes privileged host
   operations (git pull, launchctl restart, log tailing, optional Docker dev-stack)
   to the Hermes agent. See scripts/bridge/hermes-bridge.py for the full rationale.
+
+  INSTALL: run `python3 scripts/install.py` from the repo root. It fills every
+  placeholder, registers the job and verifies the loaded copy. The manual steps
+  below are what it does, kept as reference.
 
   INSTALL STEPS
   -------------

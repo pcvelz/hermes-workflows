@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/patches/reapply-patches.sh.example
 # =============================================================================
 # reapply-patches.sh.example — EXAMPLE ONLY / TEMPLATE
 # =============================================================================

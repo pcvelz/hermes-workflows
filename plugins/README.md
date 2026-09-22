@@ -28,13 +28,14 @@ never touches the cached system-prompt prefix and is never persisted).
 |---|---|---|
 | [`policy-gate`](policy-gate/) | `pre_tool_call` | Deny/ask permission rules + a filesystem "allowed roots" jail. Self-contained policy file; ships in **warn** mode. |
 | [`kanban-harness`](kanban-harness/) | `pre_tool_call` + tool | Enforces a per-board, per-role kanban transition table (default: coding → QA → human → done): refuses every agent move without a row, including side doors, and provides `kanban_handoff`. **Fail-closed** for kanban mutations. See [docs/kanban-harness.md](../docs/kanban-harness.md). |
+| [`file-read`](file-read/) | tool | The `file_read` toolset: open, list, search — no write path. Refuses scripts/executables and any op it cannot classify. Grant instead of `file` to a role that must not edit. |
 | [`audit-log`](audit-log/) | `post_tool_call` | Appends every executed command / file-edit to a greppable, **secret-scrubbed** log. |
 | [`memory-guard`](memory-guard/) | `pre_tool_call` | Blocks the agent from persisting secrets (passwords, tokens, keys) into durable memory. |
 | [`prompt-log`](prompt-log/) | `pre_llm_call` | Appends every user prompt (secret-scrubbed) to an audit log. |
 | [`skill-router`](skill-router/) | `pre_llm_call` | Injects a matching skill's `router_directive` into the turn so a small local model actually follows it. |
 | [`tooling-steering`](tooling-steering/) | `pre_llm_call` | For HTTP-API / MCP-setup requests, injects a tool-discipline instruction so the agent runs the call itself. |
 
-Every plugin except `kanban-harness` is **fail-open**: any error in a hook returns `None` (allow), so a plugin bug
+Every plugin except `kanban-harness` and `file-read` (which refuses what it cannot classify) is **fail-open**: any error in a hook returns `None` (allow), so a plugin bug
 can never break a legitimate tool call or turn. Each is independently reviewable — no shared
 library is factored out, on purpose (self-contained is the security-review-friendly choice).
 

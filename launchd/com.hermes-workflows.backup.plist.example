@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/launchd/com.hermes-workflows.backup.plist.example -->
 <!--
   com.hermes-workflows.backup.plist.example
   ==========================================
@@ -20,6 +21,10 @@
     - The in-gateway cron job is set to "enabled": false in jobs.json.example.
 
   See cron/README.md for the full backup-choice discussion.
+
+  INSTALL: run `python3 scripts/install.py` from the repo root. It fills every
+  placeholder, registers the job and verifies the loaded copy. The manual steps
+  below are what it does, kept as reference.
 
   INSTALL STEPS
   -------------

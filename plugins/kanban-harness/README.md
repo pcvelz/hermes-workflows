@@ -1,6 +1,6 @@
 # kanban-harness
 
-Enforces the kanban board's transition matrix (coding → QA → human architect → done) for
+Enforces the kanban board's transition matrix (coding → QA → the user, a human → done) for
 agent processes. It uses a `pre_tool_call` hook plus a `kanban_handoff` worker tool.
 Fail-closed for kanban mutations.
 

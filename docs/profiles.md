@@ -17,8 +17,20 @@ to match your team size and tooling.
 |---|---|---|---|---|
 | **orchestrator** | Dispatch tasks, run crons, notify humans. Never implements. | your configured backend | kanban, cronjob, messaging | auto (dispatch/notify only) |
 | **coder** | Main implementation worker. Writes code, runs tests. | your configured backend | code_execution, file, terminal, lsp | manual |
-| **planner** | Research (SearXNG), task decomposition, daily planning note. | your configured backend | web/search, kanban (decompose) | auto |
+| **planner** | Research (SearXNG), task decomposition, daily planning note. | your configured backend | web/search, kanban (decompose), file_read | auto |
 | **qa-tester** | Playwright E2E verification. Reports pass/fail; never fixes code. | your configured backend | browser, terminal (launch only) | auto |
+
+### Reading without writing: `file_read`
+
+Upstream's `file` toolset grants reading and writing as one thing. A role that must
+not edit is granted **`file_read`** instead: one tool of the same name, from the
+[`file-read`](../plugins/file-read/) plugin, with three ops — `open`, `list`,
+`search` — and no code path that writes, creates, moves or deletes. Any other op is
+refused, not guessed at. It reads the formats agents plan in (markdown, text,
+json/yaml/toml/csv/tsv, logs) and a named list of source formats; it refuses
+scripts and executables by extension, executable bit and `#!` line, and refuses
+wherever those signals disagree. Enable the plugin and list `file_read` (never
+`file`) in the profile's `platform_toolsets`. The planner is its first consumer.
 
 All profiles share the same backend endpoint by default. You can override `base_url` and
 `model` per-profile if you want to route different roles to different endpoints or tiers.

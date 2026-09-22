@@ -1,0 +1,169 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/scripts/resilience/resilience.yaml.example
+# =============================================================================
+# resilience.yaml.example -- wait budget, failure-counting policy, escalation.
+#
+# Copy to resilience.yaml (or fold these blocks into your profile config.yaml)
+# and point the escalator at it with --config / $HERMES_RESILIENCE_CONFIG.
+#
+# Everything here is documented in ../../docs/resilience.md.
+# NO SECRETS IN THIS FILE. Every credential below resolves from the
+# environment or the OS keychain at send time; the commented `token:` keys
+# exist only for operators who keep secrets in their own config store.
+# =============================================================================
+
+agent:
+  # --------------------------------------------------------------------------
+  # Patience is a duration, not a retry count.
+  #
+  # WAIT-CLASS failures (overloaded / server_error / timeout / rate_limit /
+  # backend_busy) are retried until this budget runs out. api_max_retries still
+  # applies, unchanged, to REAL failures.
+  #
+  # Accepts 30m / 12h / 1800 (a bare number is seconds).
+  #
+  # HARD INVARIANT: model_wait_budget < the card's max_runtime.
+  # The card runtime cap is the OUTER bound. A budget at or above it lets the
+  # worker spend the whole card allowance in backoff and then get reaped as
+  # timed_out -- the same silent death, with a different label. The invariant
+  # is asserted at construction; a violation is a startup error, not a warning.
+  # --------------------------------------------------------------------------
+  model_wait_budget: 30m
+
+  # Unchanged upstream key. Now governs REAL failures only.
+  api_max_retries: 3
+
+kanban:
+  # --------------------------------------------------------------------------
+  # Failure counting is a policy.
+  #
+  # Every non-success outcome increments consecutive_failures on the CARD, and
+  # at the limit the card auto-blocks with a gave_up event that recompute_ready
+  # will not undo. That is correct for a card that is genuinely broken and
+  # wrong for a card the machine never gave a chance.
+  #
+  # Shipped defaults are CONSERVATIVE -- everything counts, exactly as today.
+  # Turn an entry off only together with a working escalation channel below:
+  # a card that stops counting must still get a human told about it.
+  # --------------------------------------------------------------------------
+  count_toward_breaker:
+    crashed: true
+    spawn_failed: true
+    timed_out: true
+    backend_busy: true
+    protocol_violation: true
+
+  # A deploy whose workers share ONE local model wants the machine-caused ones
+  # off, because there they are the common case, not the exception:
+  #
+  # count_toward_breaker:
+  #   crashed: true
+  #   spawn_failed: false
+  #   timed_out: false
+  #   backend_busy: false
+
+escalation:
+  # --------------------------------------------------------------------------
+  # No card may ever sit silently blocked or given up.
+  #
+  # channel: mattermost | telegram | ntfy | none
+  # There is no default. An unset channel is an error, because silence is
+  # exactly the failure mode this whole block exists to remove. 'none' is a
+  # valid, explicit choice -- messages are rendered and logged, not sent.
+  # --------------------------------------------------------------------------
+  channel: mattermost
+
+  mattermost:
+    # The channel a human actually reads. Required.
+    channel_id: "<YOUR_MATTERMOST_CHANNEL_ID>"
+    # url and token resolve, in order, from:
+    #   $MATTERMOST_URL / $MATTERMOST_TOKEN
+    #   keychain service 'hermes-escalation', accounts
+    #     'mattermost-url' / 'mattermost-token'
+    #   the gateway profile env file named by env_file (or $HERMES_GATEWAY_ENV_FILE)
+    # Reuses the bot that already posts in your workspace -- no second bot.
+    # env_file: "~/.hermes/profiles/<gateway-profile>/.env"
+
+  telegram:
+    # bot_token resolves from $HERMES_ESCALATION_TELEGRAM_BOT_TOKEN, else the
+    # keychain (service 'hermes-escalation', account 'telegram-bot-token').
+    # chat_id  resolves from $HERMES_ESCALATION_TELEGRAM_CHAT_ID, else the
+    # keychain (account 'telegram-chat-id').
+    #
+    # Seed an existing bot's credentials once:
+    #   security add-generic-password -s hermes-escalation \
+    #     -a telegram-bot-token -w '<token>' -U
+    #   security add-generic-password -s hermes-escalation \
+    #     -a telegram-chat-id -w '<chat-id>' -U
+    {}
+
+  ntfy:
+    # Same server, topic and Keychain-resolved bearer token as the existing
+    # kanban ntfy notifier -- reused, not reimplemented.
+    server: "<YOUR_NTFY_SERVER>"
+    topic: "<YOUR_UNGUESSABLE_TOPIC>"
+    keychain_service: ntfy-token
+    keychain_account: "<YOUR_NTFY_ACCOUNT>"
+
+  # Seconds a ready, unclaimed card may sit untouched before it counts as
+  # stranded. "Stranded" must mean "nobody CAN run this", not "nobody has run
+  # it yet" -- two suppressions enforce that automatically:
+  #   * the human lane: an assignee that maps to no profile is a review gate
+  #     no dispatcher is ever meant to claim;
+  #   * queued behind capacity: the board is at kanban.max_in_progress AND
+  #     this card's assignee already has a worker running elsewhere.
+  stranded_after_seconds: 3600
+
+  # A heartbeat means the process LIVES, not that the work MOVES. A card can
+  # be running with a healthy claim and fresh heartbeats while the session it
+  # dispatched has been hung for hours -- the board looks perfect and nothing
+  # moves until the max_runtime cap reaps it.
+  #
+  # A card is stalled when its heartbeats are fresh (within
+  # heartbeat_fresh_within_seconds -- stale heartbeats are a CRASH, which the
+  # dispatcher's own reaper owns) but it has produced no task event other than
+  # `heartbeat` for stalled_after_seconds.
+  stalled_after_seconds: 2700          # 45m
+  heartbeat_fresh_within_seconds: 300
+
+  # ---------------------------------------------------------------------------
+  # ONE PUSH PER STUCK CARD. NEVER A STREAM.
+  #
+  # A push must mean "this is stuck and nothing else will come through".
+  # `gave_up` and `blocked` are events, so the event cursor pages them once.
+  # `stranded` and `stalled` are NOT events -- they are recomputed from the
+  # card's current state on every tick, so without a page log a hung card
+  # pages every 60s for as long as it stays hung. (Measured on a live box:
+  # 60 ticks, 60 pushes, one card.)
+  #
+  # A card pages once per (card, kind), and again only when this many seconds
+  # have passed, or when its state actually changed (a new worker pid on a
+  # stalled card is a NEW hang and re-pages immediately).
+  #
+  # State lives in a small JSON file beside the board DB
+  # (.escalator_pages.json, override with --state). Only a DELIVERED page is
+  # recorded, so an undelivered one is retried next tick; a dry run never
+  # consumes a cooldown; a corrupt log fails OPEN (one duplicate at worst,
+  # never a swallowed page).
+  # ---------------------------------------------------------------------------
+  repeat_after_seconds: 21600          # 6h
+
+  # Which kinds actually get pushed. Unset = all six. Narrow it to the hard
+  # breaks if you only want to hear about things that are truly stuck:
+  #   notify_on: [gave_up, blocked, budget_exhausted, stalled]
+  # Kinds left out are still REPORTED in the tick output -- visible, just not
+  # pushed.
+  # notify_on: [gave_up, blocked, spawn_auto_blocked, budget_exhausted, stranded, stalled]
+
+  # Send one closing line when a card that was paged starts moving again.
+  # Without it a page never ends and the reader has to go and look.
+  send_resolution: true
+
+  # Cards a human has declared permanently uninteresting. All three optional.
+  # title_patterns are shell globs, matched case-insensitively.
+  ignore:
+    card_ids: []
+    assignees: []
+    title_patterns: []
+    # card_ids: ["t_0000abcd"]
+    # assignees: ["user"]
+    # title_patterns: ["*DO NOT DISPATCH*", "review gate*"]

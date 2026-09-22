@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/launchd/com.hermes-workflows.gateway.plist.example -->
 <!--
   com.hermes-workflows.gateway.plist.example
   ================================
@@ -8,6 +9,10 @@
 
   Reference: the maintainer runs an equivalent service under launchd at ~/.hermes.
   See docs/architecture/topologies.md for the native-vs-Docker topology comparison.
+
+  INSTALL: run `python3 scripts/install.py` from the repo root. It fills every
+  placeholder, registers the job and verifies the loaded copy. The manual steps
+  below are what it does, kept as reference.
 
   INSTALL STEPS
   -------------

@@ -1,3 +1,5 @@
+# @user-gated
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/plugins/kanban-harness/harness.yaml.example
 # kanban-harness — the board transition matrix, as data.
 #
 # Copy to harness.yaml (git-ignored) next to this file, or point KANBAN_HARNESS_FILE at
@@ -10,16 +12,16 @@
 # This template reproduces the default matrix (see docs/kanban-harness.md):
 #   the first work column -> ready -> running    dispatcher only (promote + spawn assignee)
 #   coding  -> hand-off to qa                    kanban_handoff
-#   qa      -> hand-off to architect             kanban_handoff (task parked, see status)
-#   architect (a human) -> done, or rework       the human's own CLI / dashboard only
+#   qa      -> hand-off to the user              kanban_handoff (task parked, see status)
+#   user (the person) -> done, or rework         the human's own CLI / dashboard only
 # No row lets an agent complete, block, unblock, promote, assign or reassign.
+# No agent reaches `done`, ever -- not even for a child card.
 
-enabled: true
-
-# enforce: refuse and return a tool error.  warn: log the would-be refusal, let it run
-# (roll the harness out beside a live run first). Refusals are logged in both modes.
-mode: enforce
-# log_file: /path/to/kanban-harness.log      # default: $HERMES_HOME/logs/kanban-harness.log
+# The harness always enforces: a move the table does not allow is refused, and
+# logged. There is no mode to make it merely observe, and no switch to disable it.
+# Where refusals are written: the shared home, not $HERMES_HOME (a worker's
+# HERMES_HOME is its own profile dir).
+log_file: ~/.hermes/logs/kanban-harness.log
 
 # ----------------------------------------------------------------------------------
 # Default matrix (used by every board below that does not override a key).
@@ -29,11 +31,13 @@ roles:
     profiles: [coder]
   qa:
     profiles: [qa-tester]
-  architect:
-    # A human lane: the assignee name is used verbatim and must NOT be a Hermes
-    # profile, so the dispatcher never spawns a worker for it.
+  user:
+    # The person. A human lane: the assignee name is used verbatim and must NOT
+    # be a Hermes profile, so the dispatcher never spawns a worker for it. That
+    # absence is load-bearing: upstream's dispatcher also spawns the assignee of
+    # any `review` card that maps to a real profile (docs/board-design.md D9).
     human: true
-    assignee: architect
+    assignee: user
   # A role with no `profiles` key is a single profile named as its own role, e.g.
   # planner: {}
 
@@ -50,14 +54,25 @@ transitions:
   #             hand-off (ready = the dispatcher spawns the target; blocked = parked
   #             until a human acts, which also keeps it out of stranded_in_ready alerts)
   - {from_role: coding, action: handoff, to_role: qa, status: ready}
-  - {from_role: qa, action: handoff, to_role: architect, status: blocked}
+  # QA's pass lands in user_review: status `scheduled`, which nothing dispatches
+  # from and which the runtime's `complete` refuses -- so the user's `accept`
+  # (scripts/resilience/board_cli.py) is the only way from here to done.
+  - {from_role: qa, action: handoff, to_role: user, status: scheduled}
+  # Rework: QA sends the card back to coding, naming what failed (to_role: coding).
+  - {from_role: qa, action: handoff, to_role: coding, status: ready}
+  # A question: the worker cannot continue until a person decides -- for
+  # example the card has no acceptance criteria. kanban_handoff(question=true)
+  # parks it for the user; the worker never guesses instead.
+  - {from_role: coding, action: handoff, to_role: user, status: blocked}
+  - {from_role: qa, action: handoff, to_role: user, status: blocked}
   - {from_role: coding, action: create}          # sub-tasks / fan-out keep working
   - {from_role: coding, action: link}
   - {from_role: qa, action: create}
   - {from_role: qa, action: link}
-  # Sub-task gate: uncomment to let QA finish level-1 tasks itself, so batches of
-  # children don't all park with the human; level-0 tasks still need the human.
-  # - {from_role: qa, action: complete, when: non_root}
+  # There is deliberately NO row granting any agent `complete`. An earlier
+  # "sub-task gate" let QA finish child cards; it was dropped because no agent may
+  # reach done, ever. With config/board.yaml deployed, a row like that makes the
+  # harness refuse to load. See docs/kanban-harness.md.
   # Evidence gate: refuse a hand-off until the workspace holds matching evidence.
   # - {from_role: coding, action: handoff, to_role: qa, status: ready,
   #    requires: {files: "findings/**/*.md", matches: '(?m)^Verified: yes$'}}
@@ -74,34 +89,31 @@ always_allow:
   shell_verbs: [list, ls, show, tail, watch, stats, diagnostics, context, runs, log,
                 help, "boards list", "boards ls"]
 
-# Profiles that are in no role: deny (default) | allow.
-unknown_profile: deny
+# A profile in no role is always denied. (There is no `unknown_profile: allow`.)
 
+# Side doors. ALWAYS on, and the baseline is built into the harness: the kanban
+# database and its accept ledger, the kanban_db module, the dashboard kanban
+# API and the user's board_cli command are refused in every agent shell and code
+# tool whatever this file says. Patterns listed here are ADDED to that baseline;
+# nothing here can remove one.
 side_doors:
-  enabled: true
-  # Refused anywhere in shell / code tool arguments (Python regexes).
-  deny_patterns:
-    - {pattern: 'kanban\.db', label: the kanban database file}
-    - {pattern: '\bkanban_db\b', label: the kanban_db module}
-    - {pattern: '/api/plugins/kanban\b', label: the dashboard kanban API}
-  # Refused as a file path for file tools.
-  deny_path_patterns: ['kanban\.db', '/kanban/boards(/|$)']
+  deny_patterns: []
+  deny_path_patterns: []
 
 # ----------------------------------------------------------------------------------
-# Boards. A list of slugs uses the default matrix for each; a mapping lets a board
-# override any key above (roles, transitions, always_allow, unknown_profile,
-# root_marker, side_doors — each replaced as a whole). "*" = every other board;
-# without "*", boards not listed are not harnessed.
+# Boards. EVERY board is harnessed. A mapping lets a board override roles,
+# transitions, always_allow, root_marker or side_doors (each replaced as a whole,
+# and every override still subject to the built-in baseline). A board not listed
+# here gets the default table -- never no table.
 # ----------------------------------------------------------------------------------
 boards:
   "*": {}
-  # migration:
+  # project-a:
   #   roles:
   #     coding: {profiles: [coder]}
   #     qa: {profiles: [qa-tester]}
-  #     architect: {human: true, assignee: <your-name>}
+  #     user: {human: true, assignee: user}
   #   transitions:
   #     - {from_role: coding, action: handoff, to_role: qa, status: ready}
-  #     - {from_role: qa, action: handoff, to_role: architect, status: blocked}
-  #     - {from_role: qa, action: complete, when: non_root}
+  #     - {from_role: qa, action: handoff, to_role: user, status: scheduled}
   #     - {from_role: coding, action: create, via: [tool, shell]}

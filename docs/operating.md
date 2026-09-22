@@ -81,6 +81,8 @@ hermes gateway run -v                 # verbose; -vv = very verbose
 
 # Background service (the normal way to leave it running)
 hermes gateway install                # registers launchd (macOS) / systemd (Linux)
+# On macOS, use `python3 scripts/install.py` instead: it registers the gateway
+# AND the escalator and verifies both. Never run both installers' gateways at once.
 hermes gateway start
 hermes gateway stop
 hermes gateway restart

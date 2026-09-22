@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/examples/autonomous-loop/config.yaml.example
 # =============================================================================
 # examples/autonomous-loop — minimal seed config for the PROVEN board→worker→
 # verdict loop.

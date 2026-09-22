@@ -1,0 +1,13 @@
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/HANDOVER.md.example -->
+# The hand-off form
+
+Every `kanban_handoff` summary carries each field below on its own line, as
+`Field: value`. `none` is a value. A summary without a field is refused.
+
+Done: what you changed, so the next role knows what to look at without reading the whole run.
+Method: how you checked it (the tests, the migration dry-run, the review), so the next role can check it a different way.
+Files: every file you wrote or changed, so nothing you touched goes unreviewed. Paths only, one per line or comma separated, inside your workspace, or the single word `none`. Each listed file must hold the work: a missing, empty or placeholder file (under 64 bytes, a markdown file of only headings, a table with no rows) is refused.
+Result: what the check actually printed or showed, so a claim is backed by its output.
+Could not check: what you could not verify and why, including any command that failed, so a gap is never read as a pass.
+Review first: the one place most likely to be wrong, so the reviewer starts where the risk is.
+Doubts: anything you are unsure of, so it is decided by a person rather than hidden.

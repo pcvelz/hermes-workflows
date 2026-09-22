@@ -31,6 +31,24 @@ else
   rm -f /tmp/_disp.$$
 fi
 
+# The live motor: upstream's dispatch_once, as the gateway ticks it. Own
+# process, so its counters stay its own; its exit status is the verdict.
+if bash "$_self_dir/chain-flows.sh" >/tmp/_chain.$$ 2>&1; then
+  pass "chain flows: $(grep -m1 -E '^\[(PASS|SKIP)\] chain flows' /tmp/_chain.$$)"
+else
+  fail "chain flows FAILED — $(tail -20 /tmp/_chain.$$ | tr '\n' ' ')"
+fi
+rm -f /tmp/_chain.$$
+
+# What starts the motor: scripts/install.py registers the gateway the
+# dispatcher runs in. Own process, like the chain flows above.
+if bash "$_self_dir/install.sh" >/tmp/_inst.$$ 2>&1; then
+  pass "installer: $(grep -m1 -E '^\[(PASS|SKIP)\] installer' /tmp/_inst.$$)"
+else
+  fail "installer FAILED — $(tail -20 /tmp/_inst.$$ | tr '\n' ' ')"
+fi
+rm -f /tmp/_inst.$$
+
 section "dispatcher summary"
 info "PASS=$PASS_COUNT FAIL=$FAIL_COUNT SKIP=$SKIP_COUNT"
 [ "$FAIL_COUNT" -eq 0 ]

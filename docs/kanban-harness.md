@@ -21,9 +21,18 @@ The shipped `harness.yaml.example` encodes this:
 | first work column | `ready` | dispatcher | automatic promotion (deps resolved) |
 | `ready` | `running` | dispatcher | spawns the assignee's profile; only roles with a profile are ever spawned |
 | `running` (coding) | `ready`, assignee = QA | coding agent | `kanban_handoff(summary)` |
-| `running` (QA) | `blocked`, assignee = architect | QA agent | `kanban_handoff(summary)` |
-| architect lane | `done` | the human | `hermes kanban complete <id>` or the dashboard |
-| architect lane | back to coding | the human | `hermes kanban comment <id> "…"`, `reassign <id> <coder>`, `unblock <id>` |
+| `running` (QA) | user_review (`scheduled`), assignee = user | QA agent | `kanban_handoff(summary)` |
+| user_review | `done` | the user | `board_cli.py accept <id>` — **the only door to done** |
+| user_review | back to to do, to whoever did the work | the user | `board_cli.py rework <id> --comment "<why it failed>"` |
+| user_review, a whole fan-out | `done` for every waiting child | the user | `board_cli.py accept --children <parent-id>` |
+
+QA's pass lands in **user_review**, which lives on the status `scheduled`:
+nothing is ever dispatched from it, and the runtime's own `complete` refuses
+it, so the user's `accept` is the single way to `done`. It is deliberately not
+the runtime's `review` status, which is an *agent* review lane — see
+[board-design.md](board-design.md). `board_cli.py` lives in
+`scripts/resilience/`; agents are refused it as a side door, and it refuses to
+run inside a kanban worker.
 
 Refused for every agent (because no row grants it):
 
@@ -43,8 +52,11 @@ A refusal comes back to the worker as an ordinary tool error. It lists the moves
 worker's role *may* make and names `kanban_handoff`, so the worker carries on instead
 of crashing.
 
-The architect is a **name with no Hermes profile**, e.g. your own name. The dispatcher
-never spawns a worker for it.
+The **user** is a **name with no Hermes profile**: the person. The dispatcher never
+spawns a worker for it. That absence is load-bearing — upstream's dispatcher also runs
+a review lane that spawns the assignee of any `review` card that maps to a real
+profile, so a profile that shares the user's name would get an agent spawned for it
+(see [board-design.md](board-design.md) D9).
 
 ## The transition table
 
@@ -52,15 +64,14 @@ never spawns a worker for it.
 roles:
   coding:    {profiles: [coder]}
   qa:        {profiles: [qa-tester]}
-  architect: {human: true, assignee: <your-name>}   # must NOT be a Hermes profile
+  user:      {human: true, assignee: user}   # the person; must NOT be a Hermes profile
   # planner: {}          # no `profiles`: a single profile named as its own role
 
 transitions:
-  - {from_role: coding, action: handoff, to_role: qa,        status: ready}
-  - {from_role: qa,     action: handoff, to_role: architect, status: blocked}
-  - {from_role: coding, action: create}                     # fan-out
+  - {from_role: coding, action: handoff, to_role: qa,   status: ready}
+  - {from_role: qa,     action: handoff, to_role: user, status: scheduled}  # user_review
+  - {from_role: coding, action: create}                # fan-out
   - {from_role: coding, action: link}
-  # - {from_role: qa, action: complete, when: non_root}     # sub-task gate
   # - {from_role: coding, action: create, via: [tool, shell]}
 
 always_allow:            # open to every profile: reading and talking on the board
@@ -82,8 +93,8 @@ Row fields:
 | `action` | the kanban tool name without `kanban_` (`complete`, `block`, `unblock`, `create`, `link`, …), or `handoff`. With `via: shell`, the `hermes kanban <action>` verb, so any CLI verb (`comment`, `assign`, `promote`, …) can be granted to a role. |
 | `via` | `tool` (default), `shell`, or both |
 | `when` | `any` (default), `root` or `non_root`. A task is **level 0 (root)** when it has no parent task, or its body matches `root_marker`. |
-| `to_role`, `status` | `handoff` only: the target role, and the task's status afterwards. `ready` makes the dispatcher spawn the target, and records a `promoted` event so age-based checks count from the hand-off. `blocked` parks the task (sticky) until a human acts. |
-| `requires` | Optional evidence the move needs: `{files: <glob>, matches: <regex>}`, relative to the worker's workspace (`HERMES_KANBAN_WORKSPACE`, `**` allowed). The move is refused until some file matches the glob and, if `matches` is given, its content matches the regex. Use it so a hand-off with no evidence can't pass, e.g. a findings file with a `Verified: yes` line. |
+| `to_role`, `status` | `handoff` only: the target role, and the task's status afterwards — `ready`, `blocked` or `scheduled`, and nothing else: a hand-off never finishes a card, and never lands in the runtime's agent `review` lane. `ready` makes the dispatcher spawn the target, and records a `promoted` event so age-based checks count from the hand-off. `blocked` parks the task (sticky) until a human acts. `scheduled` is user_review — finished work waiting for the person — and is only allowed toward a human role. |
+| `requires` | *(Not the same as `requires` in `config/board.yaml`, which is a condition to enter a column.)* Optional evidence the move needs: `{files: <glob>, matches: <regex>}`, relative to the worker's workspace (`HERMES_KANBAN_WORKSPACE`, `**` allowed). The move is refused until some file matches the glob and, if `matches` is given, its content matches the regex. Use it so a hand-off with no evidence can't pass, e.g. a findings file with a `Verified: yes` line. |
 
 ### The configuration options
 
@@ -92,19 +103,24 @@ Row fields:
    `unknown_profile`, `root_marker` and `side_doors`; each key is replaced as a whole.
    `"*"` covers every board not listed. Without `"*"`, unlisted boards are not
    harnessed. A plain list of slugs applies the default matrix to those boards.
-2. **Sub-task gate.** With the default table every task ends with the human, so the
-   children of a fan-out park with the architect and their dependents never unlock. Add
-   `{from_role: qa, action: complete, when: non_root}` to let QA finish level-1 tasks
-   after checking them. Level-0 tasks (no parent, or `Level: 0` in the body) still need
-   the human.
+2. **No sub-task gate — dropped on purpose.** Earlier versions shipped a commented
+   row, `{from_role: qa, action: complete, when: non_root}`, that let QA finish
+   level-1 (child) cards itself so a fan-out's children did not all park with the
+   user. It is gone from the shipped defaults. The design rests on one rule — **no
+   agent reaches `done`, ever, not even for a child card** — and `config/board.yaml`
+   says so (`qa: may_not: [done]`). With a board specification deployed, the harness
+   refuses to load if any row grants QA `complete`, so the rule cannot be switched
+   back on by accident. If children parking with the user is painful, the fix is
+   to make the user's accept cheap, not to hand an agent the done column. The
+   `when: root | non_root` field itself still works for other actions.
 3. **Per-role shell verbs.** Add `shell` to a row's `via` to let that role run the
    matching `hermes kanban <verb>` from a shell, e.g. scripted fan-out with
    `create`/`link`. Verbs without a `shell` row stay refused, including
    complete/block/unblock/promote/assign/reassign/archive.
-4. **Rollout mode.** `mode: warn` logs each would-be refusal (`[warn] [WOULD-BLOCK]`)
-   and lets the call run. Use it to enable the harness beside a live run first.
-   `mode: enforce` refuses and logs `[enforce] [BLOCKED]`. The log file is `log_file:`,
-   default `$HERMES_HOME/logs/kanban-harness.log`.
+4. **Enforcement, always.** There is no log-only mode and no switch to disable the
+   harness: a move the table does not grant is refused and logged (`[BLOCKED]`). The
+   log file is `log_file:`, default `~/.hermes/logs/kanban-harness.log` — the shared
+   home, not `$HERMES_HOME`, since a worker's `HERMES_HOME` is its own profile dir.
 5. **Human-lane noise.** `hermes_cli/kanban_diagnostics.py`'s `stranded_in_ready` rule
    escalates `ready` tasks by age only; it ignores `max_in_progress` and whether the
    assignee can be spawned. A human-lane hand-off with `status: blocked` (the default)
@@ -165,8 +181,25 @@ plugins:
 ```
 
 A profile without the plugin enabled is not harnessed. Treat enabling it as part of
-adding a profile to a harnessed board. For an existing board, start with `mode: warn`,
-read the log, then switch to `enforce`.
+adding a profile to a harnessed board: once enabled, it always enforces — there is no
+log-only trial period.
+
+## With a board specification
+
+`config/board.yaml` says **what moves exist** — the user's columns, the status each
+lives on, the edges, and the conditions to enter or leave a column. `harness.yaml`
+says **who may make them**. Deploy the board (`KANBAN_BOARD_FILE`, or a link at
+`$HERMES_HOME/board.yaml`) and the harness composes the two; a checkout's copy is
+never picked up by fallback.
+
+- **At load:** each role's `may_not` in the board is checked against this file's
+  grants, human lanes must be human in both, and every hand-off must land on a column.
+  If the files disagree, the harness refuses to load — and so refuses kanban moves.
+- **At each hand-off:** the move must be an edge on the board, the source column's
+  `requires_to_leave` and the target column's `requires` must hold. The refusal names
+  the rule and says what would satisfy it.
+
+Design and reasoning: [board-design.md](board-design.md).
 
 ## Limits (read before relying on it)
 
@@ -178,16 +211,26 @@ read the log, then switch to `enforce`.
   [security-sandboxing.md](security-sandboxing.md)).
 - A stricter option, not shipped: patch `hermes_cli/kanban_db.py` (see
   [patches.md](patches.md)) so mutators refuse when `HERMES_KANBAN_TASK` is set.
-- The upstream `review` status (same assignee, PR-oriented reviewer) is separate. The
-  harness routes review to a *different* role by reassignment.
+- The runtime's own `review` status is an **agent** review lane: the dispatcher spawns
+  the assignee of any `review` card that maps to a real profile, and that agent may
+  merge and set `done`. This harness never hands a card there; finished work waits for
+  the user in user_review (`scheduled`) instead. With a board deployed, the escalator
+  pages if a card ever sits in `review` on a real profile.
+- The harness sees **agent** moves. A human at a terminal can still run the runtime's
+  own `complete` on a card outside user_review; with a board deployed the escalator
+  pages about any `done` that did not come through `accept`. Detection, not prevention —
+  prevention there would need a fork of the agent.
 
 ## Testing
 
 `bash scripts/test.sh smoke` runs `tests/smoke/kanban-harness.sh`. It drives the real
 hermes-agent `kanban_db` in a scratch `HERMES_HOME` and covers:
 
-- every forbidden transition and side door, expecting a refusal;
-- the allowed path end to end, plus rework;
-- one refused and one allowed case per configuration option.
+- every forbidden transition and side door, expecting a refusal — including an agent
+  reaching the user's accept/rework command;
+- the allowed path end to end: coding → QA → user_review → the runtime's `complete`
+  **refused** → the user's `accept` → done; plus rework back to the worker;
+- one refused and one allowed case per configuration option;
+- composition with a board specification, at load and at each hand-off.
 
 See [testing.md](testing.md).

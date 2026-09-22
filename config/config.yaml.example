@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/config.yaml.example
 # =============================================================================
 # Hermes-Workflows — BASE RUNTIME CONFIG TEMPLATE
 # =============================================================================
@@ -115,7 +116,32 @@ agent:
   max_turns: 60
   # Do not lower below 1800 for long autonomous runs.
   gateway_timeout: 1800
+  # A per-request silence bound, not a task timeout: a model request that
+  # receives nothing for this long is ended, the reason goes on the card, and
+  # the worker retries in place. Never unbounded (docs/harness-contract.md,
+  # "A wait is visible"). Needs the visible-wait agent patch.
+  stream_silence_limit_s: 300
+  # Retries for REAL failures (auth_permanent, billing, context_overflow,
+  # payload_too_large, model_not_found, provider_policy_blocked). Retrying
+  # cannot help those, so a count is the right limit.
   api_max_retries: 3
+
+  # Patience for WAIT-CLASS failures (overloaded, server_error, timeout,
+  # rate_limit, backend_busy) is a DURATION, not a count. A worker that cannot
+  # get model capacity waits; three retries of jittered backoff is minutes,
+  # which is not enough when another caller holds a shared local backend.
+  #
+  # Accepts 30m / 12h / 1800 (a bare number is seconds).
+  #
+  # HARD INVARIANT: model_wait_budget < the card's max_runtime. The card
+  # runtime cap is the OUTER bound; a budget at or above it lets the worker
+  # burn the whole card allowance in backoff and then get reaped as timed_out.
+  # Violating it is a startup error, not a warning.
+  #
+  # Raise this on a box where workers share one local model with interactive
+  # sessions. See docs/resilience.md.
+  model_wait_budget: 30m
+
   reasoning_effort: medium     # low | medium | high
   tool_use_enforcement: auto
   # If your backend has cold-start latency, keep this >=120 s.
@@ -256,8 +282,36 @@ kanban:
 
   failure_limit: 2
 
-  # Large tasks are auto-split into subtasks via the kanban_decomposer model.
-  auto_decompose: true
+  # Which non-success outcomes increment the CARD's consecutive_failures
+  # counter (and so push it toward the auto-block that failure_limit governs).
+  #
+  # Shipped defaults are CONSERVATIVE -- everything counts, exactly as before.
+  # A card that never got a single token out of the model has not failed, the
+  # machine has; a deploy whose workers share one local model should turn the
+  # machine-caused entries off:
+  #
+  #   count_toward_breaker:
+  #     crashed: true
+  #     spawn_failed: false
+  #     timed_out: false
+  #     backend_busy: false
+  #
+  # Only do that together with a working escalation channel below -- a card
+  # that stops counting can retry indefinitely, and what makes that safe is
+  # that a human is told every time. See docs/resilience.md.
+  count_toward_breaker:
+    crashed: true
+    spawn_failed: true
+    timed_out: true
+    backend_busy: true
+    protocol_violation: true
+
+  # MUST be false, in so many words: the kanban harness refuses to load when it
+  # is true or absent (upstream defaults it to true). The dispatcher tick would
+  # otherwise split cards via the kanban_decomposer model outside any tool call
+  # the harness can see. Splitting is the planner's job, through kanban_create.
+  # (docs/harness-contract.md T43, docs/board-design.md D4)
+  auto_decompose: false
   auto_decompose_per_tick: 3
 
   # 14400 s = 4 h Willow worker runtime before the worker is reaped.
@@ -269,6 +323,66 @@ kanban:
   orchestrator_profile: ""
 
   default_assignee: ""
+
+# ---------------------------------------------------------------------------
+# Escalation — no card may ever sit silently blocked or given up
+# ---------------------------------------------------------------------------
+# Whenever a card would be blocked, has given up, or is stranded with nobody
+# able to run it, a human gets a message carrying the card id and title, the
+# board, what happened in plain words, the last error, the exact command to
+# resume it, and a pointer to the worker log.
+#
+# Delivered by scripts/resilience/escalator.py. Full detail, including the
+# credential-resolution order (config -> env -> OS keychain -> gateway profile
+# env file) and the per-channel keys: docs/resilience.md and
+# scripts/resilience/resilience.yaml.example.
+#
+# NO SECRETS HERE. Every credential resolves at send time.
+escalation:
+  # mattermost | telegram | ntfy | none
+  # There is NO default. An unset channel is an error, because silence is the
+  # failure mode this block exists to remove. 'none' is a valid, explicit
+  # choice: messages are rendered and logged, never sent.
+  channel: none
+
+  # mattermost:
+  #   channel_id: "<YOUR_MATTERMOST_CHANNEL_ID>"
+  #   env_file: "<HERMES_HOME>/profiles/<gateway-profile>/.env"
+  # ntfy:
+  #   server: "<YOUR_NTFY_SERVER>"
+  #   topic: "<YOUR_UNGUESSABLE_TOPIC>"
+
+  # "Stranded" means NOBODY CAN RUN THIS, not "nobody has run it yet". Cards
+  # in the human lane (assignee maps to no profile) and cards queued behind
+  # kanban.max_in_progress are suppressed automatically; `ignore` below is the
+  # manual escape hatch.
+  stranded_after_seconds: 3600
+
+  # A heartbeat means the process LIVES, not that the work MOVES. A running
+  # card with a healthy claim and fresh heartbeats whose session has been hung
+  # for hours is escalated as `stalled`: fresh heartbeats, but no task event
+  # other than `heartbeat` for stalled_after_seconds.
+  stalled_after_seconds: 2700          # 45m
+  heartbeat_fresh_within_seconds: 300
+
+  # ONE PUSH PER STUCK CARD, NEVER A STREAM. `stranded` and `stalled` are
+  # recomputed every tick rather than being events, so without a page log a
+  # hung card pages every 60s. A card pages once per (card, kind) and again
+  # only after this long, or when its state actually changed.
+  repeat_after_seconds: 21600          # 6h
+
+  # Which kinds get pushed. Unset = all six. Narrow to the hard breaks with
+  # e.g. [gave_up, blocked, budget_exhausted, stalled]; kinds left out are
+  # still reported in the tick output, just not pushed.
+  # notify_on: []
+
+  # One closing line when a paged card starts moving again, so a page ends.
+  send_resolution: true
+
+  # ignore:
+  #   card_ids: []
+  #   assignees: []
+  #   title_patterns: ["*DO NOT DISPATCH*"]
 
 # ---------------------------------------------------------------------------
 # Curator

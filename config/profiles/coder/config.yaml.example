@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/coder/config.yaml.example
 # =============================================================================
 # CODER — Profile Config Overlay
 # =============================================================================
@@ -110,6 +111,7 @@ kanban:
   # After 2 consecutive failures the task is parked for human review.
   # The external dispatcher applies a 30-minute cooldown after 3+ failures.
   failure_limit: 2
+  auto_decompose: false   # the harness refuses to load otherwise (T43)
 
 # ---------------------------------------------------------------------------
 # Security — override

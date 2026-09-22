@@ -5,7 +5,7 @@
 # Thin wrapper around tests/smoke/test_kanban_harness.py. The Python suite runs
 # against the REAL hermes-agent kanban_db in a scratch HERMES_HOME (it refuses
 # the real ~/.hermes): every forbidden transition / side door must be refused,
-# and the coder -> QA -> architect -> done path must work.
+# and the coder -> QA -> user -> done path must work.
 #
 # Needs a python that can import hermes-agent: the install's venv by default.
 #   HERMES_AGENT_VENV  venv to use          (default ~/.hermes/hermes-agent/venv)

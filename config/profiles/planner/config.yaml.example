@@ -1,3 +1,4 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/planner/config.yaml.example
 # =============================================================================
 # PLANNER — Profile Config Overlay
 # =============================================================================
@@ -51,9 +52,11 @@ approvals:
 # Kanban — override
 # ---------------------------------------------------------------------------
 # Planner is the natural owner of task decomposition. It breaks epics into
-# well-scoped subtasks that the coder can pick up.
+# well-scoped subtasks the coder can pick up -- through kanban_create, which the
+# harness sees. Never through auto_decompose, which splits cards outside any
+# tool call; the harness refuses to load unless it is false (T43).
 kanban:
-  auto_decompose: true
+  auto_decompose: false
   auto_decompose_per_tick: 3
 
 # ---------------------------------------------------------------------------
@@ -61,14 +64,16 @@ kanban:
 # ---------------------------------------------------------------------------
 # Web-heavy toolset. No code_execution, no terminal, no lsp — the planner
 # does not implement.
+# file_read, never file: the planner reads tickets, surveys, run history and code,
+# and holds no tool that writes, creates, moves or deletes a file (the file-read
+# plugin; docs/profiles.md). No skills toolset either: skill_manage writes files.
 platform_toolsets:
   cli:
     - clarify
-    - file
+    - file_read
     - kanban
     - memory
     - session_search
-    - skills
     - todo
     - web
 
@@ -100,6 +105,7 @@ plugins:
     - memory-guard
     - audit-log
     - policy-gate
+    - file-read
     # - skill-router
     # - tooling-steering
 
