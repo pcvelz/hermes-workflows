@@ -58,11 +58,15 @@ __all__ = [
     "WaitBudget",
 ]
 
-#: Shipped default: 30 minutes.  Conservative -- long enough to ride out a
-#: model swap or a busy stretch, short enough that a misconfigured deploy does
-#: not hang a card for hours.  A box with a heavily shared local backend wants
-#: far more (12h is reasonable); see docs/resilience.md.
-DEFAULT_WAIT_BUDGET_SECONDS = 30 * 60
+#: Shipped default: 6 hours.  A local model that is busy is a queue, not a
+#: failure: a request parked behind other callers can legitimately wait hours,
+#: and a chat user must not see an error for that.  Under a shorter card cap
+#: the default yields to the cap (see WaitBudget); an explicit value does not.
+DEFAULT_WAIT_BUDGET_SECONDS = 6 * 3600
+
+#: The share of a card's runtime cap the DEFAULT budget may take when the cap
+#: is shorter than the default: the rest is left for the actual work.
+DEFAULT_SHARE_OF_CARD_CAP = 0.9
 
 
 class WaitBudgetInvariantError(ValueError):
@@ -143,7 +147,7 @@ class WaitBudget:
 
     def __init__(
         self,
-        budget_seconds: Any = DEFAULT_WAIT_BUDGET_SECONDS,
+        budget_seconds: Any = None,
         *,
         max_runtime_seconds: Optional[Any] = None,
         clock: Callable[[], float] = time.monotonic,
@@ -156,6 +160,11 @@ class WaitBudget:
             None if max_runtime_seconds is None
             else parse_duration(max_runtime_seconds)
         )
+        if (budget_seconds is None and self.max_runtime_seconds is not None
+                and self.budget_seconds >= self.max_runtime_seconds):
+            # Nobody chose this budget, so it must not turn a short card into
+            # a startup error: the default yields to the card cap.
+            self.budget_seconds = self.max_runtime_seconds * DEFAULT_SHARE_OF_CARD_CAP
         if enforce_invariant:
             validate_budget(self.budget_seconds, self.max_runtime_seconds)
         self._clock = clock

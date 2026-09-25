@@ -120,7 +120,14 @@ agent:
   # receives nothing for this long is ended, the reason goes on the card, and
   # the worker retries in place. Never unbounded (docs/harness-contract.md,
   # "A wait is visible"). Needs the visible-wait agent patch.
-  stream_silence_limit_s: 300
+  #
+  # On a local backend that QUEUES requests (llama-swap parks them while every
+  # slot is busy) keep this at the wait budget below. A parked request receives
+  # nothing but keep-alive pings, which the Anthropic SDK drops, so to the agent
+  # it is silent: a short bound ends it and re-sends it to the BACK of the
+  # queue, every time, and a busy box never serves it. The wait still shows on
+  # the card; the escalator pages on its own five-minute rule.
+  stream_silence_limit_s: 21600
   # Retries for REAL failures (auth_permanent, billing, context_overflow,
   # payload_too_large, model_not_found, provider_policy_blocked). Retrying
   # cannot help those, so a count is the right limit.
@@ -131,16 +138,21 @@ agent:
   # get model capacity waits; three retries of jittered backoff is minutes,
   # which is not enough when another caller holds a shared local backend.
   #
-  # Accepts 30m / 12h / 1800 (a bare number is seconds).
+  # This is THE setting for "how long may a request wait before it fails".
+  # Default 6h: a local model that is busy is a queue, not a failure, and
+  # nobody chatting with the agent over Mattermost / Telegram should see an
+  # error, a retry notice or a gateway status line because of it. Lower it if
+  # you would rather hear about a stuck backend sooner; raise it for a box
+  # that is busy for longer stretches.
+  #
+  # Accepts 30m / 6h / 12h / 1800 (a bare number is seconds).
   #
   # HARD INVARIANT: model_wait_budget < the card's max_runtime. The card
   # runtime cap is the OUTER bound; a budget at or above it lets the worker
   # burn the whole card allowance in backoff and then get reaped as timed_out.
-  # Violating it is a startup error, not a warning.
-  #
-  # Raise this on a box where workers share one local model with interactive
-  # sessions. See docs/resilience.md.
-  model_wait_budget: 30m
+  # An explicit value that breaks it is a startup error; the default yields to
+  # a shorter card cap by itself. See docs/resilience.md.
+  model_wait_budget: 6h
 
   reasoning_effort: medium     # low | medium | high
   tool_use_enforcement: auto
@@ -522,6 +534,14 @@ discord:
   channel_prompts: {}
   # Bot token read from DISCORD_BOT_TOKEN env var at gateway startup.
 
+# The gateway's own lifecycle is not chat content: no "Gateway shutting down —
+# your task will be interrupted" posts into active chats or the home channel.
+platforms:
+  mattermost:
+    gateway_restart_notification: false
+  telegram:
+    gateway_restart_notification: false
+
 # ---------------------------------------------------------------------------
 # Security
 # ---------------------------------------------------------------------------
@@ -578,7 +598,12 @@ display:
   compact: false
   personality: helpful
   resume_display: full
-  busy_input_mode: interrupt
+  # queue: a message sent while the agent works waits its turn. interrupt would
+  # abort a request that is parked in a busy local model's queue and send it
+  # to the back (docs/resilience.md, "What a chat user sees").
+  busy_input_mode: queue
+  # No "queued" / "interrupting" / gateway-restart notices in chat.
+  busy_ack_enabled: false
   show_reasoning: false
   streaming: true
   timestamps: false

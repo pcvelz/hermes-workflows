@@ -107,13 +107,33 @@ retry count.**
 
 ```yaml
 agent:
-  model_wait_budget: 30m     # shipped default
+  model_wait_budget: 6h      # shipped default — the user changes it
   api_max_retries: 3         # unchanged — now governs REAL failures only
 ```
 
-Accepts `30m` / `12h` / `1800`; a bare number is seconds. A box whose workers
-share one local model with interactive sessions wants far more than the default
-— `12h` is reasonable, and is what makes a ten-hour outage survivable.
+Accepts `30m` / `6h` / `12h` / `1800`; a bare number is seconds. This is the one
+answer to "how long may a request wait before it fails". Six hours is the
+default because a local model that is busy is a queue: a request parked behind
+other callers can wait hours and still be served, and someone chatting with the
+agent over Mattermost or Telegram must not see an error, a retry notice or a
+gateway status line in the meantime. `12h` is what makes a ten-hour outage
+survivable.
+
+When no budget is configured and a card's `max_runtime` is shorter than the
+default, the default yields: it takes 90 % of the card cap, so an unconfigured
+deploy never trips the invariant below. An explicit budget is never adjusted.
+
+### A queued request is silent — keep the silence bound at the budget
+
+A local proxy that queues (llama-swap parks a request while every slot is busy)
+sends a parked request nothing but keep-alive pings, and the Anthropic SDK drops
+ping events before the agent sees them. To the agent a parked request is
+silent. With `stream_silence_limit_s` at its 300 s default the request is ended
+after five minutes and re-sent, which puts it at the **back** of the queue; on a
+box that stays busy it is never served, and after `api_max_retries` of that the
+user gets an error. On such a backend set `stream_silence_limit_s` to the wait
+budget (`21600` for `6h`); the card still shows the wait, and the escalator
+still pages on its own five-minute rule.
 
 `WaitBudget.should_retry()` is the drop-in replacement for
 `retry_count < max_retries`:
@@ -441,6 +461,7 @@ two upstream files, applied with the pattern in [patches.md](patches.md):
 | `agent/conversation_loop.py` | Build one `WaitBudget` per API-call block from `agent.model_wait_budget` and the claimed card's `max_runtime_seconds`. Replace the loop condition `while retry_count < max_retries` and the exhaustion guard `if retry_count >= max_retries:` with `budget.should_retry(verdict, retry_count, max_retries)`. Clamp the backoff sleep with `budget.cap_sleep(wait_time)`. Call `budget.reset()` after a successful call. |
 | `agent/error_classifier.py` | Optional. The refinement works from outside via `error_policy.refine()`; folding `backend_busy` into `FailoverReason` itself is the cleaner long-term shape and the right thing to propose upstream. |
 | `cli.py` | **OPEN DEFECT against the policy "an absent local model is a queue, not a failure" — not an accepted gap. Found in the first real outage (the model box powered off).** When a kanban worker gives up on the backend, it exits `1`; only `failure_reason` `rate_limit` / `billing` get exit `75` (`KANBAN_RATE_LIMIT_EXIT_CODE`), the upstream sentinel that makes the dispatcher requeue the card **without counting a failure**. A dead or busy backend classifies as `timeout`, so it exits `1`, the dispatcher records `crashed` with the text *"pid N exited with code 1"*, and the card loses a life. The reconciler cannot undo it: the backend error never reaches the board — only the exit code does. The fix is one tuple: widen `in ("rate_limit", "billing")` to include the wait-class reasons (`timeout`, `overloaded`, `server_error`, `backend_busy`). The outage is then requeued at the source, atomically, with the respawn guard deferring the retry. |
+| `agent/agent_init.py` (interim) | Until the loop consults `WaitBudget`, a one-function patch gets the same outcome for the wait: it sets the loop's retry allowance from `agent.model_wait_budget` — the smallest count whose zero-jitter backoff sum (2 s doubling, 60 s cap) still covers the budget, so no error can surface before the budget ends, and with full jitter it ends by about 1.5×. An unset budget means 6 h on a local backend (`127.0.0.1`, `localhost`, `::1`, `host.docker.internal`, `*.local`) and nothing extra on a remote one; a larger explicit `api_max_retries` wins. It does not tell wait-class from real failures — the non-retryable ones already leave the loop before the count is consulted. |
 | heartbeat note | Also from that outage: every kanban heartbeat carries `note: null`, and the worker's retry status is buffered until it exits, so a worker waiting on a dead backend looks exactly like a hung one, and the `stalled` rule cannot tell them apart. Upstream's `heartbeat_task` already accepts a note; passing the retry loop's activity note ("error retry backoff 12/30") would let the escalator say "waiting on the backend" — once per outage, not once per card. |
 
 Both are **temporary local patches** by the rules in [patches.md](patches.md):
@@ -448,6 +469,35 @@ derive them against the exact installed agent version, record a `.orig.bak`,
 and prefer contributing the fix to
 [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) over
 carrying them.
+
+---
+
+## What a chat user sees while the model is busy: nothing
+
+A gateway profile (Mattermost, Telegram) waits exactly like a worker, and the
+chat stays clean while it does. The wait itself is covered above; these keys
+keep the gateway's own machinery out of the conversation:
+
+```yaml
+agent:
+  model_wait_budget: 6h          # no error before this
+  stream_silence_limit_s: 21600  # a parked request is not cut and re-queued
+display:
+  busy_input_mode: queue         # a second message waits its turn instead of
+                                 # interrupting a request already in the queue
+  busy_ack_enabled: false        # no "queued" / "interrupting" notices
+platforms:
+  mattermost:
+    gateway_restart_notification: false   # no "Gateway shutting down" posts
+```
+
+Upstream sends one more lifecycle line no key reaches: a message that arrives
+while the gateway drains for a restart gets *"Gateway is restarting and is not
+accepting another turn right now"*. The deployment this scaffold came from
+patches `gateway/run.py` so that notice follows `busy_ack_enabled` too.
+
+Only when the budget is spent does the user hear anything, once: the provider
+failure reply.
 
 ---
 
