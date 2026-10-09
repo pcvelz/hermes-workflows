@@ -24,6 +24,9 @@ DEFAULTS: dict[str, Any] = {
     "idle_exit_minutes": 60,
     "permission_mode": "dontAsk",
     "allowed_tools": ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
+    # Tool rules the session must never use, passed as --disallowedTools (deny wins over allow).
+    # Empty = no flag. A channel's disallowed_tools is ADDED to this list.
+    "disallowed_tools": [],
     "append_system_prompt": (
         "You are answering in a chat channel. Reply in plain text, as one message, "
         "in the user's language. Each message starts with [time · sender]; messages can "
@@ -58,7 +61,7 @@ DEFAULTS: dict[str, Any] = {
     "mcp_servers": {},
     "mcp_allowed_tools": [],
     # Per-channel overrides: {<channel-id>: {allowed_tools: [...], append_system_prompt: "..."}}.
-    # allowed_tools is ADDED to the global list; append_system_prompt is appended after a blank line.
+    # allowed_tools and disallowed_tools are ADDED to the global lists; append_system_prompt is appended after a blank line.
     "channels": {},
 }
 
@@ -134,6 +137,12 @@ def for_channel(cfg: dict[str, Any], cid: str) -> dict[str, Any]:
         extra = _as_list(extra)
     if isinstance(extra, list):
         eff["allowed_tools"] = list(eff.get("allowed_tools") or []) + [str(t) for t in extra]
+    denied = override.get("disallowed_tools")
+    if isinstance(denied, str):
+        denied = _as_list(denied)
+    if isinstance(denied, list):
+        merged = list(eff.get("disallowed_tools") or [])
+        eff["disallowed_tools"] = merged + [str(t) for t in denied if str(t) not in merged]
     prompt = override.get("append_system_prompt")
     if isinstance(prompt, str) and prompt.strip():
         eff["append_system_prompt"] = f"{eff.get('append_system_prompt') or ''}\n\n{prompt}".lstrip("\n")

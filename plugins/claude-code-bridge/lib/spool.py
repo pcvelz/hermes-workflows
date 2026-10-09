@@ -122,11 +122,25 @@ def put_reply(cfg: dict[str, Any], cid: str, reply: dict[str, Any]) -> Path:
     return path
 
 
+def is_notice(path: Path) -> bool:
+    """True for an outbox item marked ``"notice": true`` (an instant post, not a reply)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("notice") is True
+
+
 def take_reply(cfg: dict[str, Any], cid: str) -> dict[str, Any] | None:
-    """Pop the oldest ``outbox/*.json`` reply, or return None when there is none."""
+    """Pop the oldest ``outbox/*.json`` reply, or return None when there is none.
+
+    Notices (``"notice": true``) are skipped; they are posted by the worker, not taken as replies.
+    """
     outbox = channel_dir(cfg, cid) / "outbox"
     for path in sorted(outbox.glob("*.json"), key=lambda p: (len(p.stem), p.stem)):
         try:
+            if is_notice(path):
+                continue
             return pop(path)
         except FileNotFoundError:
             continue

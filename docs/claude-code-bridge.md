@@ -181,6 +181,7 @@ as a string such as `'["a", "b"]'`.
 | `idle_exit_minutes` | `60` | Stop an idle session after this many minutes. |
 | `permission_mode` | `dontAsk` | `claude --permission-mode`. Tools not allowed are refused, never prompted. |
 | `allowed_tools` | `[Read, Glob, Grep, WebSearch, WebFetch]` | `claude --allowedTools`. May include narrow Bash patterns for a local capability, e.g. `Bash(/path/to/local-tool add:*)` (prefix match on one subcommand of one absolute path). Never add a broad `Bash(*)`. |
+| `disallowed_tools` | `[]` | `claude --disallowedTools` (a deny rule; wins over `allowed_tools`). Empty = no flag. Use `Read(//abs/path/**)` for an absolute path (`//` = filesystem root; a single `/` is project-relative). Added to by a channel's own `disallowed_tools`. Part of the launch fingerprint, so a change restarts that channel's idle session. |
 | `append_system_prompt` | chat contract text (see below) | `claude --append-system-prompt`. |
 | `max_reply_chars` | `15000` | Replies longer than this are cut with an ellipsis. |
 | `allowed_users` | `[]` | Chat usernames that may reach the bridge. `"*"` = every sender; empty = nobody. |
@@ -193,7 +194,7 @@ as a string such as `'["a", "b"]'`.
 | `keys_dir` | `""` | Folder that `keyfile:` references resolve against. Empty = `<HERMES_HOME>/keys`. |
 | `mcp_servers` | `{}` | Claude Code MCP servers for the session, as a mapping name → server spec (`type: http`, `url`, `headers`). A value `keyfile:<service>/<name>` is replaced at session start by the file `<keys_dir>/<service>/<name>` (whitespace stripped). Empty = an empty server map; the session still runs `--strict-mcp-config`. |
 | `mcp_allowed_tools` | `[]` | Tool names appended to `--allowedTools` when an MCP file was rendered, e.g. `mcp__composio_gmail__GMAIL_FETCH_EMAILS`. |
-| `channels` | `{}` | Per-channel overrides keyed by channel id. `allowed_tools` is added to the global list; `append_system_prompt` is appended after a blank line, for that channel only. Only `Edit(path)` rules govern file edits; `Write(path)` rules are ignored. |
+| `channels` | `{}` | Per-channel overrides keyed by channel id. `allowed_tools` and `disallowed_tools` are added to the global lists; `append_system_prompt` is appended after a blank line, for that channel only. Only `Edit(path)` rules govern file edits; `Write(path)` rules are ignored. A channel may also set `record_user_input: {file, exclude_users}`: each injected user message is appended to the `@user-input` block of `<channel dir>/<file>` before the session sees it (see the plugin README, "Recording user input in a file"). |
 
 ### MCP servers (how they are wired)
 

@@ -25,12 +25,36 @@ By default every channel's session gets the global `allowed_tools` (read-only) a
 channels:
   <CHANNEL_ID>:
     allowed_tools: ["Edit(./NOTES.md)"]     # added to the global list, this channel only
+    disallowed_tools: ["Read(//abs/path/**)"]  # added to the global disallowed_tools, this channel only
     append_system_prompt: "..."             # appended after a blank line, this channel only
 ```
 
+`disallowed_tools` (global default `[]`) is passed as `claude --disallowedTools`, a deny rule that
+wins over any allow rule. Use it to take a file or folder away from a channel that otherwise has
+broad read tools: absolute paths take the form `Read(//abs/path/**)` (a single leading `/` means
+relative to the project). No flag is passed when the list is empty.
+
+### Recording user input in a file
+
+A channel can also have each injected user message written into one of its files, before the
+session is told about it:
+
+```yaml
+channels:
+  <CHANNEL_ID>:
+    record_user_input: {file: CLAUDE.md, exclude_users: [<bot-username>]}
+```
+
+For every message the worker injects (not `/reset`, not an `exclude_users` sender), it appends
+`- YYYY-MM-DD HH:MM @user-input (<user>): <text>` inside the block delimited by
+`<!-- @user-input:start -->` and `<!-- @user-input:end -->` in `<channel dir>/<file>`. A
+`(none yet)` line in the block is replaced. The write is atomic. If the markers or the file are
+missing, nothing is written and a warning is logged. A line already in the block is not added
+twice, so a message re-queued after a failed inject is recorded once.
+
 Unknown sub-keys are ignored, and a missing or malformed `channels` block changes nothing. The
-override is applied once, in the session's argv (`config.for_channel`), so `--allowedTools` and
-`--append-system-prompt` reflect it. The launch fingerprint includes that argv, so changing one
+override is applied once, in the session's argv (`config.for_channel`), so `--allowedTools`,
+`--disallowedTools` and `--append-system-prompt` reflect it. The launch fingerprint includes that argv, so changing one
 channel's override restarts only that channel's idle session, through the usual `--resume` path.
 
 ## Files

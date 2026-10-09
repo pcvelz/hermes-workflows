@@ -404,7 +404,64 @@ class ChannelOverrideTests(SessionTestCase):
         self.assertEqual(self._argv(malformed, CID), self._argv(base, CID))
 
 
+DENY_KEYS = "Read(//home/alice/.hermes/keys/**)"
+DENY_GLOBAL = "Read(//srv/global/**)"
+DENY_CHANNEL = "Grep(//srv/channel/**)"
+
+
+class DisallowedToolsTests(SessionTestCase):
+    """disallowed_tools -> --disallowedTools: global list plus the channel's own; no flag when empty."""
+
+    def _argv(self, cfg, cid):
+        return session.launch_argv(cfg, cid, {"session_id": "11111111-2222-3333-4444-555555555555",
+                                              "started_once": False})
+
+    def test_no_flag_when_nothing_is_denied(self):
+        cfg = self.make_cfg()
+        self.assertEqual(cfg["disallowed_tools"], [])
+        self.assertNotIn("--disallowedTools", self._argv(cfg, CID))
+
+    def test_global_denies_are_passed_as_one_flag(self):
+        cfg = self.make_cfg(disallowed_tools=[DENY_GLOBAL, DENY_KEYS])
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--disallowedTools"), DENY_GLOBAL + "," + DENY_KEYS)
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertIn("--session-id", argv)
+
+    def test_channel_denies_merge_with_global_without_duplicates(self):
+        cfg = self.make_cfg(disallowed_tools=[DENY_GLOBAL])
+        cfg["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL, DENY_GLOBAL]}}
+        self.assertEqual(_flag(self._argv(cfg, CID), "--disallowedTools"),
+                         DENY_GLOBAL + "," + DENY_CHANNEL)
+        # The global config itself is not changed by the channel view.
+        self.assertEqual(cfg["disallowed_tools"], [DENY_GLOBAL])
+
+    def test_channel_denies_apply_to_that_channel_only(self):
+        cfg = self.make_cfg()
+        cfg["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL]}}
+        self.assertEqual(_flag(self._argv(cfg, CID), "--disallowedTools"), DENY_CHANNEL)
+        self.assertNotIn("--disallowedTools", self._argv(cfg, OTHER))
+
+    def test_denies_change_the_launch_fingerprint(self):
+        base = self.make_cfg()
+        denied = self.make_cfg()
+        denied["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL]}}
+        self.assertNotEqual(session.fingerprint(denied, CID), session.fingerprint(base, CID))
+        self.assertEqual(session.fingerprint(denied, OTHER), session.fingerprint(base, OTHER))
+
+    def test_malformed_denies_are_ignored(self):
+        base = self.make_cfg()
+        cfg = self.make_cfg(channels={CID: {"disallowed_tools": 42}})
+        self.assertEqual(self._argv(cfg, CID), self._argv(base, CID))
+
+
 class ForChannelTests(unittest.TestCase):
+    def test_channel_disallowed_tools_string_form_is_split(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["channels"] = {CID: {"disallowed_tools": "Read(//a/**), Grep(//b/**)"}}
+        self.assertEqual(config.for_channel(cfg, CID)["disallowed_tools"],
+                         ["Read(//a/**)", "Grep(//b/**)"])
+
     def test_returns_copy_and_leaves_global_untouched(self):
         cfg = copy.deepcopy(config.DEFAULTS)
         cfg["channels"] = {CID: {"allowed_tools": [OVERRIDE_TOOL]}}

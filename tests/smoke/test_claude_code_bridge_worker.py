@@ -478,6 +478,50 @@ class WorkerTickTests(_Base):
         self.assertEqual(spool.pop(queued[0])["text"], "first")
 
 
+class NoticeTests(_Base):
+    """An outbox item with "notice": true is posted top-level with nothing in flight, state untouched."""
+
+    def _outbox(self):
+        return list((spool.channel_dir(self.cfg, CID) / "outbox").glob("*.json"))
+
+    def write_notice(self, text):
+        outbox = spool.channel_dir(self.cfg, CID) / "outbox"
+        path = outbox / f"{time.time_ns()}.json"
+        path.write_text(json.dumps({"text": text, "notice": True}), encoding="utf-8")
+
+    def test_notice_posted_top_level_with_nothing_in_flight(self):
+        self.write_notice("heads up")
+        before = self.state()
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.post.assert_called_once_with(CID, None, "heads up")
+        self.assertEqual(self._outbox(), [])
+        self.assertEqual(self.state(), before)
+
+    def test_notice_does_not_consume_the_in_flight_reply(self):
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_notice("heads up")
+        self.write_reply("the answer")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self.post.call_args_list[0].args, (CID, None, "heads up"))
+        self.assertEqual(self.post.call_args_list[1].args, (CID, "root-1", "the answer"))
+        self.assertIsNone(self.state()["inflight"])
+
+    def test_failed_notice_is_kept_and_retried_then_dropped_at_the_cap(self):
+        self.post.return_value = False
+        self.write_notice("retry me")
+        for i in range(worker.MAX_REPLY_POST_ATTEMPTS):
+            worker.tick(self.cfg, self.post, now=NOW + i)
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+        self.assertEqual(self._outbox(), [])
+        worker.tick(self.cfg, self.post, now=NOW + 99)
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+
+    def test_notice_alone_is_not_a_reply(self):
+        self.write_notice("heads up")
+        self.assertIsNone(spool.take_reply(self.cfg, CID))
+        self.assertEqual(len(self._outbox()), 1)
+
+
 class PassthroughTests(_Base):
     def setUp(self):
         super().setUp()
@@ -604,6 +648,84 @@ class LaunchFingerprintRestartTests(_Base):
         self._tick_with_message()
         self.session.stop.assert_called_once_with(self.cfg, CID)
         self.assertEqual(self.state()["launch_fingerprint"], real_session.fingerprint(self.cfg, CID))
+
+
+class RecordUserInputTests(_Base):
+    FILE = "CLAUDE.md"
+    START = "<!-- @user-input:start -->"
+    END = "<!-- @user-input:end -->"
+
+    def setUp(self):
+        super().setUp()
+        self.cfg["channels"] = {CID: {"record_user_input": {"file": self.FILE, "exclude_users": ["bot"]}}}
+        self.doc = spool.channel_dir(self.cfg, CID) / self.FILE
+        self.doc.write_text(
+            "# Channel\n\nIntro text.\n\n## Parent instructions\n"
+            f"{self.START}\n- (none yet)\n{self.END}\n\n## Tail\nkeep me\n",
+            encoding="utf-8",
+        )
+
+    def body(self):
+        text = self.doc.read_text(encoding="utf-8")
+        return text[text.index(self.START) + len(self.START):text.index(self.END)]
+
+    def stamp(self):
+        return _stamp(NOW)
+
+    def test_appends_line_and_replaces_none_yet(self):
+        self.assertTrue(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "Pon la fecha  ya", "ts": NOW}))
+        self.assertEqual(self.body(), f"\n- {self.stamp()} @user-input (parent): Pon la fecha ya\n")
+
+    def test_second_line_is_appended_and_surroundings_kept(self):
+        worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "uno", "ts": NOW})
+        worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "dos", "ts": NOW + 60})
+        lines = [ln for ln in self.body().splitlines() if ln.strip()]
+        self.assertEqual(lines, [f"- {self.stamp()} @user-input (parent): uno",
+                                 f"- {_stamp(NOW + 60)} @user-input (parent): dos"])
+        text = self.doc.read_text(encoding="utf-8")
+        self.assertIn("Intro text.", text)
+        self.assertTrue(text.endswith("## Tail\nkeep me\n"))
+
+    def test_excluded_user_is_not_recorded(self):
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "bot", "text": "x", "ts": NOW}))
+        self.assertIn("(none yet)", self.body())
+
+    def test_control_item_is_not_recorded(self):
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "/reset", "control": "reset", "ts": NOW}))
+        self.assertIn("(none yet)", self.body())
+
+    def test_no_rule_means_no_write(self):
+        self.cfg["channels"] = {}
+        before = self.doc.read_text(encoding="utf-8")
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), before)
+
+    def test_missing_markers_write_nothing(self):
+        before = "no markers here\n"
+        self.doc.write_text(before, encoding="utf-8")
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), before)
+
+    def test_missing_file_writes_nothing(self):
+        self.doc.unlink()
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertFalse(self.doc.exists())
+
+    def test_same_item_recorded_once_when_requeued(self):
+        self.enqueue(text="una vez", post_id="p9")
+        self.session.inject.return_value = False  # first tick: inject fails, item re-queued
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.inject.return_value = True
+        worker.tick(self.cfg, self.post, now=NOW + 5)
+        lines = [ln for ln in self.body().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].endswith("(alice): una vez"))
+
+    def test_tick_records_then_injects(self):
+        self.enqueue(text="recuérdamelo")
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.inject.assert_called_once_with(self.cfg, CID, f"[{_stamp(NOW)} · alice] recuérdamelo")
+        self.assertIn(f"- {self.stamp()} @user-input (alice): recuérdamelo", self.body())
 
 
 if __name__ == "__main__":

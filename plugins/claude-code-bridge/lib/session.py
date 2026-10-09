@@ -105,6 +105,10 @@ def _argv(cfg: dict, cid: str, sid: str, has_mcp: bool, resume: bool) -> list[st
         "--allowedTools", ",".join(mcp.allowed_tools_for(cfg, has_mcp)),
         "--append-system-prompt", cfg["append_system_prompt"],
     ]
+    # Deny rules win over allow rules; no flag at all when none are configured.
+    denied = [str(t) for t in (cfg.get("disallowed_tools") or [])]
+    if denied:
+        argv += ["--disallowedTools", ",".join(denied)]
     # Always strict: only the servers in this file (possibly none), never a project .mcp.json,
     # a user/account MCP server or a plugin's. Without these flags a connector would load.
     argv += ["--mcp-config", str(spool.channel_dir(cfg, cid) / mcp.MCP_FILE), "--strict-mcp-config"]

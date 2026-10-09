@@ -76,6 +76,62 @@ def _apply_reset(cfg: dict[str, Any], cid: str, now: float) -> None:
     logger.info("claude-code-bridge: reset session on channel %s", cid)
 
 
+USER_INPUT_START = "<!-- @user-input:start -->"
+USER_INPUT_END = "<!-- @user-input:end -->"
+_NONE_YET = {"(none yet)", "- (none yet)"}
+
+
+def record_user_input(cfg: dict[str, Any], cid: str, item: dict[str, Any]) -> bool:
+    """Append one line for an injected user message to the channel's ``@user-input`` block.
+
+    Active only when the channel sets ``record_user_input: {file: <name>, exclude_users: [...]}``.
+    Skipped for control items and excluded senders. The line is
+    ``- YYYY-MM-DD HH:MM @user-input (<user>): <text>``, written inside the block delimited by
+    ``USER_INPUT_START`` / ``USER_INPUT_END`` in ``<channel dir>/<file>``; a ``(none yet)`` line is
+    replaced. A line already present is not written twice (a re-queued item keeps its timestamp).
+    Missing markers or an unreadable file: nothing is written, the problem is logged. Returns True
+    when the line is recorded or already present.
+    """
+    channels = cfg.get("channels")
+    override = channels.get(cid) if isinstance(channels, dict) else None
+    rule = override.get("record_user_input") if isinstance(override, dict) else None
+    if not isinstance(rule, dict) or not rule.get("file"):
+        return False
+    if item.get("control"):
+        return False
+    excluded = rule.get("exclude_users") or []
+    if isinstance(excluded, str):
+        excluded = [excluded]
+    if str(item.get("user")) in {str(u) for u in excluded}:
+        return False
+    path = spool.channel_dir(cfg, cid) / str(rule["file"])
+    stamp = datetime.fromtimestamp(float(item.get("ts") or time.time())).strftime("%Y-%m-%d %H:%M")
+    text = " ".join(str(item.get("text") or "").split())
+    line = f"- {stamp} @user-input ({item.get('user') or 'unknown'}): {text}"
+    try:
+        doc = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        logger.warning("claude-code-bridge: cannot read %s (%s); user input not recorded", path.name, type(exc).__name__)
+        return False
+    start = doc.find(USER_INPUT_START)
+    end = doc.find(USER_INPUT_END, start + 1) if start >= 0 else -1
+    if start < 0 or end < 0:
+        logger.warning("claude-code-bridge: @user-input markers missing in %s on channel %s; nothing recorded",
+                       path.name, cid)
+        return False
+    kept = [ln for ln in doc[start + len(USER_INPUT_START):end].splitlines()
+            if ln.strip() and ln.strip() not in _NONE_YET]
+    if line in kept:
+        return True
+    new_doc = doc[:start] + USER_INPUT_START + "\n" + "\n".join(kept + [line]) + "\n" + doc[end:]
+    try:
+        spool._atomic_write(path, new_doc)
+    except OSError as exc:
+        logger.warning("claude-code-bridge: writing %s failed (%s); user input not recorded", path.name, type(exc).__name__)
+        return False
+    return True
+
+
 MAX_REPLY_POST_ATTEMPTS = 5
 
 
@@ -103,8 +159,35 @@ def _start_session(cfg: dict[str, Any], cid: str, state: dict[str, Any], now: fl
     return started
 
 
+def _post_notices(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, str], Any]) -> None:
+    """Post outbox items marked ``"notice": true`` top-level, whether or not a message is in flight.
+
+    A notice never touches the session state. A failed post stays in the outbox and is retried
+    on a later tick, up to the same attempt cap as replies.
+    """
+    outbox = spool.channel_dir(cfg, cid) / "outbox"
+    for path in sorted(outbox.glob("*.json"), key=lambda p: (len(p.stem), p.stem)):
+        if not spool.is_notice(path):
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if _post_reply(post_fn, cid, None, str(data.get("text", ""))):
+            path.unlink(missing_ok=True)
+            continue
+        attempts = int(data.get("post_attempts") or 0) + 1
+        if attempts >= MAX_REPLY_POST_ATTEMPTS:
+            logger.error("claude-code-bridge: notice dropped on channel %s after %d failed posts", cid, attempts)
+            path.unlink(missing_ok=True)
+        else:
+            data["post_attempts"] = attempts
+            spool._atomic_write(path, json.dumps(data, ensure_ascii=False))
+
+
 def _tick_channel(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, str], Any], now: float) -> None:
     _apply_reset(cfg, cid, now)
+    _post_notices(cfg, cid, post_fn)
     state = spool.load_state(cfg, cid)
     inflight = state.get("inflight")
     budget_s = float(cfg.get("wait_budget_minutes", 360)) * 60
@@ -158,6 +241,7 @@ def _tick_channel(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, st
             if session.is_idle(cfg, cid):
                 path = queued[0]
                 item = spool.pop(path)
+                record_user_input(cfg, cid, item)
                 if session.inject(cfg, cid, format_message(item)):
                     state["inflight"] = item
                     state["inflight_since"] = now

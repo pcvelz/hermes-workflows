@@ -163,6 +163,7 @@ claude_code_bridge:
   idle_exit_minutes: 60          # close an idle session after this (~ prompt-cache lifetime); resumed by session id on the next message
   permission_mode: dontAsk       # tools not listed below are refused, never prompted
   allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
+  disallowed_tools: []           # deny rules for every channel (--disallowedTools); empty = none
   append_system_prompt: >-
     You are answering in a chat channel. Reply in plain text, as one message,
     in the user's language. Each message starts with [time · sender]; messages can
@@ -213,7 +214,9 @@ claude_code_bridge:
   # channels:
   #   <CHANNEL_ID>:
   #     allowed_tools: ["Edit(./NOTES.md)"]          # ADDED to allowed_tools for this channel only
+  #     disallowed_tools: ["Read(//abs/path/**)"]    # ADDED to disallowed_tools (--disallowedTools, deny wins), this channel only
   #     append_system_prompt: "..."                  # appended after a blank line, this channel only
+  #     record_user_input: {file: CLAUDE.md, exclude_users: []}  # append each injected user message to the @user-input block of <channel dir>/CLAUDE.md
 
 # =============================================================================
 # REMINDER: keep this profile's SOUL.md backend-agnostic (see SOUL.md.example).
