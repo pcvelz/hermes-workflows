@@ -7,7 +7,7 @@ through the real PluginContext, then:
   * attempts every forbidden transition / side door and expects a refusal that comes
     back through the real pre_tool_call pipeline, with the task unchanged;
   * drives the allowed path end to end with the shipped example matrix:
-      dispatcher spawns coder -> coder hands off -> dispatcher spawns QA ->
+      dispatcher spawns coding -> coding hands off -> dispatcher spawns QA ->
       QA hands off -> task parked in the human lane (nothing spawned) ->
       the human completes it via the real CLI; plus the human's rework path;
   * for each configuration option (per-board matrices, sub-task gate, shell verbs,
@@ -45,12 +45,12 @@ for k in [k for k in os.environ if k.startswith("HERMES_KANBAN")] + ["HERMES_PRO
 os.environ["HERMES_HOME"] = str(_HOME)
 # The harness refuses to load unless the dispatcher cannot split cards (T43).
 (_HOME / "config.yaml").write_text("kanban:\n  auto_decompose: false\n")
-for prof in ("coder", "qa-tester"):
+for prof in ("coding", "qa-tester"):
     (_HOME / "profiles" / prof).mkdir(parents=True)
 
 EXAMPLE = (PLUGIN_DIR / "harness.yaml.example").read_text()
 HARNESS = _HOME / "harness.yaml"
-HARNESS.write_text(EXAMPLE.replace("assignee: user", "assignee: peter"))
+HARNESS.write_text(EXAMPLE.replace("assignee: user", "assignee: alice"))
 os.environ["KANBAN_HARNESS_FILE"] = str(HARNESS)
 
 if not (AGENT_SRC / "hermes_cli" / "kanban_db.py").is_file():
@@ -111,9 +111,9 @@ def call_tool(tool, args):
 # A compact matrix used by the option tests; each test appends its own rows/keys.
 _BASE = """
 roles:
-  coding: {profiles: [coder]}
+  coding: {profiles: [coding]}
   qa: {profiles: [qa-tester]}
-  user: {human: true, assignee: peter}
+  user: {human: true, assignee: alice}
 always_allow:
   tools: [kanban_show, kanban_list, kanban_heartbeat, kanban_comment]
   shell_verbs: [list, show]
@@ -180,7 +180,7 @@ class HarnessCase(unittest.TestCase):
     def task(self, tid):
         return kb.get_task(self.conn, tid)
 
-    def new_running_task(self, profile="coder", title="t"):
+    def new_running_task(self, profile="coding", title="t"):
         tid = kb.create_task(self.conn, title=title, assignee=profile)
         self.tick()
         self.assertEqual(self.task(tid).status, "running")
@@ -228,9 +228,9 @@ class HarnessCase(unittest.TestCase):
 
 
 class ForbiddenTransitions(HarnessCase):
-    def test_coder_cannot_complete_block_or_unblock(self):
-        tid = self.new_running_task("coder")
-        with Worker(tid, "coder"):
+    def test_coding_cannot_complete_block_or_unblock(self):
+        tid = self.new_running_task("coding")
+        with Worker(tid, "coding"):
             for tool in ("kanban_complete", "kanban_block", "kanban_unblock"):
                 msg = blocked(tool, {"task_id": tid, "summary": "done", "reason": "x"})
                 self.assertIsNotNone(msg, tool)
@@ -256,7 +256,7 @@ class ForbiddenTransitions(HarnessCase):
             res = call_tool("kanban_handoff", {"summary": "row 7 wrong: expected 12",
                                                "to_role": "coding"})
         self.assertTrue(res.get("ok"), res)
-        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("ready", "coder"))
+        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("ready", "coding"))
 
     def test_unknown_profile_cannot_mutate(self):
         with Worker("t_nothing", "orchestrator"):
@@ -265,9 +265,9 @@ class ForbiddenTransitions(HarnessCase):
             self.assertIsNone(blocked("kanban_show", {"task_id": "t_x"}))
 
     def test_handoff_only_own_running_task(self):
-        tid = self.new_running_task("coder")
-        other = kb.create_task(self.conn, title="other", assignee="coder")
-        with Worker(tid, "coder"):
+        tid = self.new_running_task("coding")
+        other = kb.create_task(self.conn, title="other", assignee="coding")
+        with Worker(tid, "coding"):
             self.assertIn("error", call_tool("kanban_handoff", {"task_id": other, "summary": "x"}))
             self.assertIn("error", call_tool("kanban_handoff", {"summary": "  "}))
         with Worker(tid, "qa-tester"):  # not the assignee
@@ -275,14 +275,14 @@ class ForbiddenTransitions(HarnessCase):
         self.assertEqual(self.task(tid).status, "running")
 
     def test_side_doors_refused(self):
-        tid = self.new_running_task("coder")
+        tid = self.new_running_task("coding")
         db = str(kb.kanban_db_path())
         doors = [
             ("terminal", {"command": f"hermes kanban complete {tid} --summary ok"}),
-            ("terminal", {"command": f"hermes -p coder kanban --board default block {tid} x"}),
+            ("terminal", {"command": f"hermes -p coding kanban --board default block {tid} x"}),
             ("terminal", {"command": f"cd /tmp && hermes kanban unblock {tid}"}),
             ("terminal", {"command": f"echo; hermes kanban promote {tid}"}),
-            ("terminal", {"command": f"hermes kanban assign {tid} peter"}),
+            ("terminal", {"command": f"hermes kanban assign {tid} alice"}),
             ("terminal", {"command": f"hermes kanban reassign {tid} qa-tester"}),
             ("terminal", {"command": f"hermes kanban archive {tid}"}),
             ("terminal", {"command": "hermes kanban create 'x'"}),  # tool-only grant
@@ -294,7 +294,7 @@ class ForbiddenTransitions(HarnessCase):
             ("write_file", {"path": db, "content": ""}),
             ("patch", {"path": db + "-wal", "old_string": "a", "new_string": "b"}),
         ]
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             for tool, args in doors:
                 self.assertIsNotNone(blocked(tool, args), f"{tool} {args}")
             for cmd in ("hermes kanban list", f"hermes kanban show {tid}",
@@ -306,7 +306,7 @@ class ForbiddenTransitions(HarnessCase):
         old = os.environ["KANBAN_HARNESS_FILE"]
         os.environ["KANBAN_HARNESS_FILE"] = str(_HOME / "missing.yaml")
         try:
-            with Worker("t_x", "coder"):
+            with Worker("t_x", "coding"):
                 self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x"}))
                 self.assertIsNone(blocked("terminal", {"command": "ls"}))
         finally:
@@ -315,11 +315,11 @@ class ForbiddenTransitions(HarnessCase):
 
 class AllowedPath(HarnessCase):
     def test_allowed_path_end_to_end(self):
-        tid = kb.create_task(self.conn, title="feature", assignee="coder")
-        self.tick()  # dispatcher: ready -> running, spawns the coder
-        self.assertIn((tid, "coder"), self.spawned)
+        tid = kb.create_task(self.conn, title="feature", assignee="coding")
+        self.tick()  # dispatcher: ready -> running, spawns the coding
+        self.assertIn((tid, "coding"), self.spawned)
 
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             res = call_tool("kanban_handoff", {"summary": "implemented X; tests pass"})
         self.assertTrue(res.get("ok"), res)
         t = self.task(tid)
@@ -336,7 +336,7 @@ class AllowedPath(HarnessCase):
         self.assertTrue(res["human"])
         t = self.task(tid)
         # user_review: finished work waiting for the person
-        self.assertEqual((t.status, t.assignee), ("scheduled", "peter"))
+        self.assertEqual((t.status, t.assignee), ("scheduled", "alice"))
 
         type(self).spawned = []
         self.tick()  # user_review: not promoted, never spawned
@@ -355,18 +355,18 @@ class AllowedPath(HarnessCase):
         self.assertEqual(kinds.count("handed_off"), 2, kinds)
 
     def test_human_rework_path(self):
-        tid = self.new_running_task("coder")
-        with Worker(tid, "coder"):
+        tid = self.new_running_task("coding")
+        with Worker(tid, "coding"):
             self.assertTrue(call_tool("kanban_handoff", {"summary": "v1"}).get("ok"))
         self.tick()
         with Worker(tid, "qa-tester"):
             self.assertTrue(call_tool("kanban_handoff", {"summary": "4 bad rows"}).get("ok"))
         # the user sends it back, with the reason, to whoever did the work
         self.user_cli("rework", tid, "--comment", "rows 3,5,7,9 wrong; redo")
-        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("ready", "coder"))
+        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("ready", "coding"))
         type(self).spawned = []
         self.tick()
-        self.assertIn((tid, "coder"), self.spawned)
+        self.assertIn((tid, "coding"), self.spawned)
         self.assertEqual(self.task(tid).status, "running")
 
     def test_an_agent_cannot_reach_the_users_accept_command(self):
@@ -394,12 +394,12 @@ class Options(HarnessCase):
               - {from_role: coding, action: link}
         """
         with Config(textwrap.dedent(_BASE) + textwrap.dedent(cfg[len(_BASE):])), \
-                Worker("t_x", "coder"):
+                Worker("t_x", "coding"):
             self.assertIsNotNone(blocked("kanban_link", {"task_id": "t_x", "board": "default"}))
             self.assertIsNone(blocked("kanban_link", {"task_id": "t_x", "board": "scratch"}))
         # every board is harnessed: an unlisted board gets the default table
         cfg2 = textwrap.dedent(_BASE) + "transitions: []\nboards: [only-this]\n"
-        with Config(cfg2), Worker("t_x", "coder"):
+        with Config(cfg2), Worker("t_x", "coding"):
             self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x", "board": "only-this"}))
             self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x", "board": "default"}))
 
@@ -407,7 +407,7 @@ class Options(HarnessCase):
         """The `when` mechanism, shown with a harmless action. (It used to be
         shown with QA completing child cards -- the "sub-task gate" -- which is
         no longer a shipped option: no agent reaches done, ever.)"""
-        parent = kb.create_task(self.conn, title="batch", assignee="coder")
+        parent = kb.create_task(self.conn, title="batch", assignee="coding")
         child = kb.create_task(self.conn, title="row 1", assignee="qa-tester", parents=[parent])
         marked = kb.create_task(self.conn, title="row 2", assignee="qa-tester",
                                 parents=[parent], body="Level: 0\ncheck it")
@@ -420,7 +420,7 @@ class Options(HarnessCase):
                 with Worker(tid, "qa-tester"):
                     msg = blocked("kanban_link", {"task_id": tid})
                     self.assertEqual(msg is not None, expect_refused, (tid, msg))
-            with Worker(child, "coder"):  # the row is QA's, not coding's
+            with Worker(child, "coding"):  # the row is QA's, not coding's
                 self.assertIsNotNone(blocked("kanban_link", {"task_id": child}))
 
     def test_the_shipped_template_grants_no_agent_complete(self):
@@ -437,7 +437,7 @@ class Options(HarnessCase):
           - {from_role: coding, action: link, via: shell}
         """)
         with Config(cfg):
-            with Worker("t_x", "coder"):
+            with Worker("t_x", "coding"):
                 self.assertIsNone(blocked("terminal", {"command": "hermes kanban create 'row 7'"}))
                 self.assertIsNone(blocked("terminal", {"command": "hermes kanban link t_a t_b"}))
                 self.assertIsNone(blocked("terminal", {"command": "hermes kanban list"}))
@@ -451,7 +451,7 @@ class Options(HarnessCase):
         must fail to load, and kanban calls stay refused while it does (the
         existing fail-closed-on-config-error behavior), never silently allowed."""
         cfg = textwrap.dedent(_BASE) + "mode: warn\ntransitions: []\n"
-        with Config(cfg), Worker("t_x", "coder"):
+        with Config(cfg), Worker("t_x", "coding"):
             with self.assertRaises(harness.HarnessConfigError):
                 harness.load_config()
             self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x"}))
@@ -460,7 +460,7 @@ class Options(HarnessCase):
         """There is no disable switch: a config naming `enabled:` must fail to
         load, and kanban calls stay refused while it does."""
         cfg = textwrap.dedent(_BASE) + "enabled: false\ntransitions: []\n"
-        with Config(cfg), Worker("t_x", "coder"):
+        with Config(cfg), Worker("t_x", "coding"):
             with self.assertRaises(harness.HarnessConfigError):
                 harness.load_config()
             self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x"}))
@@ -472,7 +472,7 @@ class Options(HarnessCase):
         old_home_env = os.environ.get("HOME")
         old_hermes_home = os.environ.get("HERMES_HOME")
         os.environ["HOME"] = str(fake_home)
-        os.environ["HERMES_HOME"] = str(_HOME / "profiles" / "coder")
+        os.environ["HERMES_HOME"] = str(_HOME / "profiles" / "coding")
         try:
             path = harness._log_path(None)
         finally:
@@ -502,18 +502,18 @@ class Options(HarnessCase):
 
     def test_table_is_the_only_source(self):
         # nothing granted, nothing always-allowed: even reads are refused
-        cfg = "roles:\n  coding: {profiles: [coder]}\ntransitions: []\n"
-        with Config(cfg), Worker("t_x", "coder"):
+        cfg = "roles:\n  coding: {profiles: [coding]}\ntransitions: []\n"
+        with Config(cfg), Worker("t_x", "coding"):
             self.assertIsNotNone(blocked("kanban_show", {"task_id": "t_x"}))
             self.assertIsNotNone(blocked("kanban_create", {"title": "x"}))
         # a single profile named as its own role, granted one harmless move by one row
-        cfg = "roles:\n  coder: {}\ntransitions:\n  - {from_role: coder, action: link}\n"
-        with Config(cfg), Worker("t_x", "coder"):
+        cfg = "roles:\n  coding: {}\ntransitions:\n  - {from_role: coding, action: link}\n"
+        with Config(cfg), Worker("t_x", "coding"):
             self.assertIsNone(blocked("kanban_link", {"task_id": "t_x"}))
             self.assertIsNotNone(blocked("kanban_block", {"task_id": "t_x"}))
         # and no row can grant complete: the baseline refuses the table at load
-        cfg = "roles:\n  coder: {}\ntransitions:\n  - {from_role: coder, action: complete}\n"
-        with Config(cfg), Worker("t_x", "coder"):
+        cfg = "roles:\n  coding: {}\ntransitions:\n  - {from_role: coding, action: complete}\n"
+        with Config(cfg), Worker("t_x", "coding"):
             self.assertIsNotNone(blocked("kanban_complete", {"task_id": "t_x"}))
 
     def test_handoff_requires_evidence(self):
@@ -523,10 +523,10 @@ class Options(HarnessCase):
           - {from_role: coding, action: handoff, to_role: qa, status: ready,
              requires: {files: "findings/**/*.md", matches: '(?m)^Verified: yes$'}}
         """)
-        tid = self.new_running_task("coder")
+        tid = self.new_running_task("coding")
         os.environ["HERMES_KANBAN_WORKSPACE"] = str(ws)
         try:
-            with Config(cfg), Worker(tid, "coder"):
+            with Config(cfg), Worker(tid, "coding"):
                 res = call_tool("kanban_handoff", {"summary": "done"})  # no file at all
                 self.assertIn("requires evidence", res.get("error", ""), res)
                 (ws / "findings").mkdir()
@@ -541,8 +541,8 @@ class Options(HarnessCase):
         self.assertEqual(self.task(tid).status, "ready")
 
     def test_ready_handoff_records_promotion(self):
-        tid = self.new_running_task("coder")
-        with Worker(tid, "coder"):
+        tid = self.new_running_task("coding")
+        with Worker(tid, "coding"):
             self.assertTrue(call_tool("kanban_handoff", {"summary": "v1"}).get("ok"))
         kinds = [e.kind for e in kb.list_events(self.conn, tid)]
         self.assertGreater(kinds.index("promoted", kinds.index("handed_off")),
@@ -684,7 +684,7 @@ class BoardComposition(unittest.TestCase):
         """A human lane with a profile behind it gets a worker spawned for it."""
         cfg = textwrap.dedent("""
         roles:
-          coding: {profiles: [coder]}
+          coding: {profiles: [coding]}
           user: {profiles: [planner]}
         transitions: []
         """)
@@ -740,6 +740,7 @@ _ROLES = """
 roles:
   coding: {hands_off_to: [qa, user]}
   qa: {hands_off_to: [user, coding]}
+  planner: {hands_off_to: [coding, qa, user]}
   user: {human: true}
 """
 
@@ -756,15 +757,15 @@ class BoardAtTransitionTime(HarnessCase):
     the action, and the board has the edge and its conditions hold."""
 
     def test_the_shipped_flow_works_with_the_real_board_deployed(self):
-        tid = self.new_running_task("coder")
+        tid = self.new_running_task("coding")
         with BoardFile(BOARD_YAML):
-            with Worker(tid, "coder"):
+            with Worker(tid, "coding"):
                 self.assertTrue(call_tool("kanban_handoff", {"summary": _FORM_OK}).get("ok"))
             self.tick()
             with Worker(tid, "qa-tester"):
                 res = call_tool("kanban_handoff", {"summary": _FORM_OK})
         self.assertTrue(res.get("ok"), res)
-        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("scheduled", "peter"))
+        self.assertEqual((self.task(tid).status, self.task(tid).assignee), ("scheduled", "alice"))
 
     def test_a_move_that_is_not_an_edge_is_refused(self):
         no_edge = _board("board-no-review-edge.yaml", """
@@ -788,9 +789,9 @@ class BoardAtTransitionTime(HarnessCase):
         the user may not receive finished work in user_review."""
         cfg = textwrap.dedent(_BASE) + textwrap.dedent("""
         roles:
-          coding: {profiles: [coder]}
+          coding: {profiles: [coding]}
           qa: {profiles: [qa-tester]}
-          user: {human: true, assignee: peter}
+          user: {human: true, assignee: alice}
           bystander: {human: true, assignee: someone-else}
         transitions:
           - {from_role: qa, action: handoff, to_role: bystander, status: scheduled}
@@ -824,19 +825,19 @@ class BoardAtTransitionTime(HarnessCase):
                 question: {status: blocked}
                 done: {}
         """)
-        without = self.new_running_task("coder")
-        with BoardFile(spec), Worker(without, "coder"):
+        without = self.new_running_task("coding")
+        with BoardFile(spec), Worker(without, "coding"):
             res = call_tool("kanban_handoff", {"summary": "done"})
         self.assertIn("error", res)
         self.assertIn("to leave 'in_progress'", res["error"])
         self.assertIn("route the card to the user as a question", res["error"])
 
-        with_ac = self.new_running_task("coder")
+        with_ac = self.new_running_task("coding")
         with self.conn:
             self.conn.execute(
                 "UPDATE tasks SET body = ? WHERE id = ?",
                 ("## Acceptance criteria\n- the page renders", with_ac))
-        with BoardFile(spec), Worker(with_ac, "coder"):
+        with BoardFile(spec), Worker(with_ac, "coding"):
             self.assertTrue(call_tool("kanban_handoff", {"summary": "done"}).get("ok"))
 
     def test_entering_a_column_can_require_a_referenced_card(self):
@@ -851,8 +852,8 @@ class BoardAtTransitionTime(HarnessCase):
                 user_review: {status: scheduled}
                 question: {status: blocked}
         """)
-        tid = self.new_running_task("coder")
-        with BoardFile(spec), Worker(tid, "coder"):
+        tid = self.new_running_task("coding")
+        with BoardFile(spec), Worker(tid, "coding"):
             res = call_tool("kanban_handoff", {"summary": "done"})
         self.assertIn("error", res)
         self.assertIn("link it to the card it waits for", res["error"])
@@ -866,8 +867,8 @@ class BoardAtTransitionTime(HarnessCase):
                 user_review: {status: scheduled}
                 question: {status: blocked}
         """)
-        tid = self.new_running_task("coder")
-        with BoardFile(spec), Worker(tid, "coder"):
+        tid = self.new_running_task("coding")
+        with BoardFile(spec), Worker(tid, "coding"):
             res = call_tool("kanban_handoff", {"summary": "done"})
         self.assertIn("error", res)
         self.assertIn("unknown condition 'moon_phase'", res["error"])

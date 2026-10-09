@@ -28,7 +28,7 @@ log_file: ~/.hermes/logs/kanban-harness.log
 # ----------------------------------------------------------------------------------
 roles:
   coding:
-    profiles: [coder]
+    profiles: [coding]
   qa:
     profiles: [qa-tester]
   user:
@@ -38,8 +38,10 @@ roles:
     # any `review` card that maps to a real profile (docs/board-design.md D9).
     human: true
     assignee: user
-  # A role with no `profiles` key is a single profile named as its own role, e.g.
-  # planner: {}
+  planner:
+    # Single-profile role: the planner profile IS its own role. Creates/links
+    # cut children and hands them off to lanes; returns split cards to the user.
+    profiles: [planner]
 
 transitions:
   # from_role   who may move            (a role above)
@@ -69,6 +71,14 @@ transitions:
   - {from_role: coding, action: link}
   - {from_role: qa, action: create}
   - {from_role: qa, action: link}
+  # Planner: creates and links the children of a cut (tool only), hands a child
+  # to a lane, returns its split card to the user.
+  - {from_role: planner, action: create, via: [tool]}
+  - {from_role: planner, action: link, via: [tool]}
+  - {from_role: planner, action: handoff, to_role: coding, status: ready}
+  - {from_role: planner, action: handoff, to_role: qa, status: ready}
+  - {from_role: planner, action: handoff, to_role: user, status: scheduled}
+  - {from_role: planner, action: handoff, to_role: user, status: blocked}
   # There is deliberately NO row granting any agent `complete`. An earlier
   # "sub-task gate" let QA finish child cards; it was dropped because no agent may
   # reach done, ever. With config/board.yaml deployed, a row like that makes the
@@ -110,7 +120,7 @@ boards:
   "*": {}
   # project-a:
   #   roles:
-  #     coding: {profiles: [coder]}
+  #     coding: {profiles: [coding]}
   #     qa: {profiles: [qa-tester]}
   #     user: {human: true, assignee: user}
   #   transitions:

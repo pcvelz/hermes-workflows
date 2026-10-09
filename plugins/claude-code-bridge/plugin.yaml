@@ -1,0 +1,6 @@
+name: claude-code-bridge
+version: 1.0.0
+description: "Answer allowed chat channels with one persistent, interactive Claude Code session (tmux). Messages are spooled per channel; a Stop hook hands each reply back and the gateway worker posts it in the thread. Fail-closed: disabled by default, empty allowlists admit nobody."
+author: "Hermes Workflows"
+hooks:
+  - pre_gateway_dispatch
