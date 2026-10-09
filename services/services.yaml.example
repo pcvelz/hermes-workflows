@@ -1,0 +1,58 @@
+# services/services.yaml.example — per-service parameters for scripts/install-services.py.
+#
+# Usable one-to-one: copy it to services/services.yaml (git-ignored) unchanged, or
+# leave it as-is and the installer reads this file when the real one is absent.
+#
+# KEY-FILE PATTERN: this file holds NO account-bound values. Every secret, account /
+# server / channel id, host and keychain item name is a key file at the fixed path
+#     keys/<service>/<name>      (repo root, or $HERMES_KEYS_DIR/<service>/<name>)
+# and this file only names the path. The installer checks each key exists and copies
+# it into $HERMES_HOME/launchd-keys/ (launchd cannot read ~/Documents). A key listed
+# under `keys:` becomes the env var KEY_<NAME> (uppercase, dashes to underscores).
+
+# launchd labels become <label_prefix>.<service>. Public default; change it if you like.
+label_prefix: org.example.hermes
+
+services:
+  cdp-chrome-service:
+    launchd: true
+    interpreter: bash           # bash -> /bin/bash
+    payload: start-cdp-chrome.sh
+    keep_alive: true
+    run_at_load: true
+    env:
+      CDP_PORT: "9222"          # not account-bound: a plain setting
+    keys: {}
+
+  config-guard:
+    launchd: true
+    interpreter: python         # python -> $HERMES_HOME/hermes-agent/venv/bin/python3
+    payload: check-configs.py
+    keep_alive: false
+    run_at_load: true
+    watch_profiles:             # rendered into the plist WatchPaths (launchd cannot glob)
+      - coding
+      - private
+    keys: {}
+
+  kanban-ntfy-notifier:
+    launchd: true
+    interpreter: python
+    payload: notifier.py
+    keep_alive: false
+    run_at_load: true
+    start_interval: 60
+    keys:
+      server: keys/kanban-ntfy-notifier/server
+      topic: keys/kanban-ntfy-notifier/topic
+      keychain-account: keys/kanban-ntfy-notifier/keychain-account
+      keychain-service: keys/kanban-ntfy-notifier/keychain-service
+
+  composio-gmail-mcp:
+    launchd: false              # a wiring tool, run by hand: wire.py --profile <name>
+    payload: wire.py
+    keys:
+      host: keys/composio-gmail-mcp/host
+      server-id: keys/composio-gmail-mcp/server-id
+      user-id: keys/composio-gmail-mcp/user-id
+      api-key: keys/composio-gmail-mcp/api-key
