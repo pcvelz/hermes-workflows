@@ -15,6 +15,9 @@ dist/
 .env
 .env.*
 !.env.example
+# Key files: one file per account-bound value, at keys/<service>/<name>. Real values only.
+keys/
+keys
 auth.json
 auth.lock
 *.key
@@ -85,6 +88,7 @@ Thumbs.db
 # For each committed <name>.example, a user creates a real <name> (no marker) locally.
 # Git-ignored here so real config/secrets never enter git — in a public OR private checkout.
 /config/config.yaml
+/config/backends.yaml
 /config/providers/llm-providers.yaml
 /config/hindsight/hindsight.yaml
 /config/profiles/*/config.yaml
@@ -93,6 +97,8 @@ Thumbs.db
 /config/HANDOVER.md
 /cron/jobs.json
 /launchd/*.plist
+/launchd/service.plist.tmpl
+/services/services.yaml
 /patches/reapply-patches.sh
 /scripts/backup/kanban-backup.sh
 /scripts/memory/vault-hindsight-sync.sh

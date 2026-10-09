@@ -1,0 +1,50 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/backends.yaml.example
+# =============================================================================
+# Hermes-Workflows — BACKEND MAP TEMPLATE
+# =============================================================================
+# Which backend each Hermes profile talks to: its model, the llama-swap tier it
+# rides (or a remote endpoint), and an optional delegation target. Profile
+# configs (config/profiles/<p>/config.yaml) must match this file —
+# scripts/check-backends.py fails when they disagree.
+#
+# Before using:
+#   1. Copy to config/backends.yaml (gitignored) and replace every <PLACEHOLDER>.
+#   2. Change a backend HERE first, then apply it to the profile config
+#      (e.g. `hermes -p <profile> config set …`). Never let the two drift.
+#   3. Run `python3 scripts/check-backends.py` to confirm they agree.
+#
+# Tiers are llama-swap listeners (ports are examples — use your own):
+#   priority    http://127.0.0.1:8002   preempts lower ranks   → interactive chat
+#   default     http://127.0.0.1:8001   anything unconfigured
+#   background  http://127.0.0.1:8003   preemptible            → batch / coding
+# =============================================================================
+
+tiers:
+  priority:   http://127.0.0.1:8002
+  default:    http://127.0.0.1:8001
+  background: http://127.0.0.1:8003
+
+profiles:
+  private:            # interactive chat profile; delegates research to the priority tier
+    model: <model-alias>
+    tier: priority
+    delegation: { model: <model-alias>, tier: priority }
+  coding:             # professional work
+    model: <model-alias>
+    tier: background
+  orchestrator:
+    model: <model-alias>
+    tier: background
+  planner:
+    model: <model-alias>
+    tier: background
+  qa-tester:
+    model: <model-alias>
+    tier: background
+  scout:
+    model: <model-alias>
+    tier: background
+  chat:               # chat front-end; any backend works: a local tier, a remote host, or Claude
+    model: <model-alias>
+    tier: default
+    # remote: https://<remote-provider-host>   # replaces `tier:` for a hosted-model lane
