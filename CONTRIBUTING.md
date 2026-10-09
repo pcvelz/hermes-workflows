@@ -58,7 +58,7 @@ A profile is a `config.yaml` + a skills include-list + a per-profile `MEMORY.md`
 (behavioral rules only — keep it under **~2200 chars**). Profiles live under
 `config/profiles/`. A good profile PR:
 
-- [ ] Uses one of the role names (`orchestrator` / `coder` / `planner` / `qa-tester`) or clearly justifies a new role.
+- [ ] Uses one of the role names (`orchestrator` / `coding` / `planner` / `qa-tester`) or clearly justifies a new role.
 - [ ] Includes a minimal `config.yaml.example` and `MEMORY.md.example`.
 - [ ] Documents what the profile is *for* in [docs/profiles.md](docs/profiles.md).
 
@@ -80,7 +80,7 @@ We use [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
 feat: add planner research-digest cron
-fix: correct base_url in coder profile
+fix: correct base_url in coding profile
 docs: clarify the 0.0.0.0 bind caveat
 chore: bump .editorconfig indent rules
 ```

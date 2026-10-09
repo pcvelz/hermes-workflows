@@ -40,7 +40,7 @@ code:
 
 | On a card in … | `scheduled` (user_review) | `review` (agent lane) |
 |---|---|---|
-| dispatcher, assignee is a **real profile** | spawns **nothing** | spawned `coder` as a reviewer |
+| dispatcher, assignee is a **real profile** | spawns **nothing** | spawned `coding` as a reviewer |
 | `complete_task` → done | **refused** | refused |
 | `unblock_task` → ready | works | refused |
 | `recompute_ready` | leaves it alone | leaves it alone |

@@ -27,7 +27,7 @@
      Placeholders in this file:
        __HERMES_HOME__  — absolute path to the Hermes runtime directory
                           (e.g. /Users/yourname/.hermes)
-       __PROFILE__      — gateway profile name: orchestrator | coder | planner | qa-tester
+       __PROFILE__      — gateway profile name: orchestrator | coding | planner | qa-tester
                           (or your own profile name from $HERMES_HOME/profiles/)
 
   3. Load the agent:
@@ -51,7 +51,7 @@
     - --profile argument -> private
     - StandardOutPath / StandardErrorPath -> gateway-private.log / gateway-private.error.log
 
-  Conceptual roles (used in docs/profiles.md): orchestrator, coder, planner, qa-tester.
+  Conceptual roles (used in docs/profiles.md): orchestrator, coding, planner, qa-tester.
 -->
 <plist version="1.0">
 <dict>

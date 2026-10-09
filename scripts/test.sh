@@ -94,6 +94,7 @@ CMD="${1:-}"
 case "$CMD" in
   static)
     run_layer "STATIC" "$REPO_ROOT/tests/static/run.sh"
+    run_layer "STATIC — backends" "$REPO_ROOT/tests/static/check-backends.sh"
     ;;
   smoke)
     run_layer_isolated "SMOKE — LLM" "$REPO_ROOT/tests/smoke/llm.sh"
@@ -103,12 +104,14 @@ case "$CMD" in
     run_layer "SMOKE — resilience" "$REPO_ROOT/tests/smoke/resilience.sh"
     run_layer "SMOKE — board" "$REPO_ROOT/tests/smoke/board.sh"
     run_layer "SMOKE — harness contract" "$REPO_ROOT/tests/smoke/harness-contract.sh"
+    run_layer "SMOKE — claude-code-bridge" "$REPO_ROOT/tests/smoke/claude-code-bridge.sh"
     ;;
   e2e)
     run_layer "E2E" "$REPO_ROOT/tests/e2e/run.sh"
     ;;
   all)
     run_layer "STATIC" "$REPO_ROOT/tests/static/run.sh"
+    run_layer "STATIC — backends" "$REPO_ROOT/tests/static/check-backends.sh"
     run_layer_isolated "SMOKE — LLM" "$REPO_ROOT/tests/smoke/llm.sh"
     run_layer "SMOKE — bridge"     "$REPO_ROOT/tests/smoke/bridge.sh"
     run_layer "SMOKE — dispatcher" "$REPO_ROOT/tests/smoke/dispatcher.sh"
@@ -116,6 +119,7 @@ case "$CMD" in
     run_layer "SMOKE — resilience" "$REPO_ROOT/tests/smoke/resilience.sh"
     run_layer "SMOKE — board" "$REPO_ROOT/tests/smoke/board.sh"
     run_layer "SMOKE — harness contract" "$REPO_ROOT/tests/smoke/harness-contract.sh"
+    run_layer "SMOKE — claude-code-bridge" "$REPO_ROOT/tests/smoke/claude-code-bridge.sh"
     run_layer "E2E" "$REPO_ROOT/tests/e2e/run.sh"
     ;;
   -h|--help|help|"")

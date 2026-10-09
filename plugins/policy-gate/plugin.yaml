@@ -1,5 +1,5 @@
 name: policy-gate
-version: 0.1.0
+version: 1.0.0
 description: "Replicate Claude Code's deny/ask permission rules on the Hermes agent via a pre_tool_call gate, plus a filesystem allowed-roots jail. Self-contained policy file (no external base). Default allow; deny+ask block with a reason. Ships in warn mode."
 author: "Hermes Workflows"
 hooks:

@@ -1,5 +1,5 @@
 name: memory-guard
-version: 0.1.0
+version: 1.0.0
 description: "Block the agent from persisting secrets (passwords, tokens, API keys, private keys) into persistent memory. Fail-open: any hook error allows the write."
 author: "Hermes Workflows"
 hooks:

@@ -1,5 +1,5 @@
 name: skill-router
-version: 0.1.0
+version: 1.0.0
 description: "Deterministically route a matching user message to its skill by injecting the skill's `router_directive` into the current turn via a pre_llm_call hook. Fixes a small local model never calling skill_view() on its own (Hermes only puts skill name+short-desc in the prompt; the body loads opt-in). Opt-in per skill: a skill participates only if its frontmatter declares metadata.hermes.router_directive."
 author: "Hermes Workflows"
 hooks:

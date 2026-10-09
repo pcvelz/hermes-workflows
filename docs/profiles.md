@@ -5,20 +5,32 @@ process with its own `config.yaml`, `state.db`, `MEMORY.md`, and cron set.
 A profile is a role — it encodes what an agent is allowed to do and what it must
 never do.
 
-This scaffold ships four generalized roles designed to cover an autonomous
-software-development workflow. Adopt them as-is or collapse / expand the set
+This scaffold ships five generalized roles: four designed to cover an autonomous
+software-development workflow, and one chat front-end. Adopt them as-is or collapse / expand the set
 to match your team size and tooling.
+
+Which backend each profile uses (model, llama-swap tier or remote endpoint, delegation) is declared once in `config/backends.yaml`; see `config/backends.yaml.example` for the template.
 
 ---
 
-## The four roles
+## The five roles
 
 | Role | Purpose | Model tier | Key toolsets | Approvals |
 |---|---|---|---|---|
 | **orchestrator** | Dispatch tasks, run crons, notify humans. Never implements. | your configured backend | kanban, cronjob, messaging | auto (dispatch/notify only) |
-| **coder** | Main implementation worker. Writes code, runs tests. | your configured backend | code_execution, file, terminal, lsp | manual |
+| **coding** | Main implementation worker. Writes code, runs tests. | your configured backend | code_execution, file, terminal, lsp | manual |
 | **planner** | Research (SearXNG), task decomposition, daily planning note. | your configured backend | web/search, kanban (decompose), file_read | auto |
 | **qa-tester** | Playwright E2E verification. Reports pass/fail; never fixes code. | your configured backend | browser, terminal (launch only) | auto |
+| **chat** | The conversation front-end in chat channels. Optionally hands channels to a persistent Claude Code session via the [claude-code-bridge](claude-code-bridge.md) (Max/Pro login). Investigations go to the profile's own agent, which fans out (`delegate_task`). | your configured backend (`config/backends.yaml`) | clarify, code_execution, file, kanban, memory, session_search, skills, terminal, todo, web | manual |
+
+### The `chat` role
+
+The four roles above each do work. `chat` is the conversation layer: it answers people in
+chat channels. Its model is whatever you configure in `config/backends.yaml`: a local model,
+Claude, or any other backend. The role name is the job, never the model.
+`claude_code_bridge.enabled` is an optional mode of this role that hands each channel to one
+persistent Claude Code session ([claude-code-bridge](claude-code-bridge.md)); it is not what the role is.
+Investigations are never bridged; they go to the profile's own agent, which fans them out with `delegate_task`.
 
 ### Reading without writing: `file_read`
 
@@ -67,7 +79,7 @@ profile is launched by a separate launchd job:
   <string>-m</string>
   <string>hermes_cli.main</string>
   <string>--profile</string>
-  <string>coder</string>
+  <string>coding</string>
   <string>gateway</string>
   <string>run</string>
   <string>--replace</string>

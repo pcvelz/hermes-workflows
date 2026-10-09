@@ -152,4 +152,4 @@ In the Docker compose stack, Hindsight runs as the `hindsight` container (pgvect
 
 Cross-references (owned by other elements, may land later):
 - [`cron/README.md`](../cron/README.md) — full cron/launchd inventory, including the 30-minute vault→Hindsight sync cadence
-- [`docs/profiles.md`](profiles.md) — orchestrator/coder/planner/qa-tester role definitions and per-profile MEMORY.md paths
+- [`docs/profiles.md`](profiles.md) — orchestrator/coding/planner/qa-tester role definitions and per-profile MEMORY.md paths

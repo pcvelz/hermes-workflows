@@ -94,7 +94,7 @@
 ## What is this?
 
 **hermes-workflows** is a generalized, portable foundation for orchestrating multiple
-autonomous agent *profiles* — `orchestrator`, `coder`, `planner`, `qa-tester` — that
+autonomous agent *profiles* — `orchestrator`, `coding`, `planner`, `qa-tester` — that
 collaborate on real software tasks through a shared kanban board, a three-layer memory
 system, a periodic dispatcher, and a host-side bridge for git and service operations.
 
@@ -113,8 +113,9 @@ backends. See [docs/getting-started.md](docs/getting-started.md).
 
 ## Features
 
-- **Multi-profile orchestration** — `orchestrator`, `coder`, `planner`, `qa-tester` roles,
+- **Multi-profile orchestration** — `orchestrator`, `coding`, `planner`, `qa-tester` roles,
   each with its own gateway, config, memory, and skill set.
+- **Chat front-end (`chat` role)** — answers chat channels with the model you configure in `config/backends.yaml` (local, Claude, or any backend); investigations fan out through the profile's own agent. Optionally, the opt-in claude-code-bridge hands channels to one persistent Claude Code session per channel. Off by default. See [docs/claude-code-bridge.md](docs/claude-code-bridge.md).
 - **Autonomous kanban loop (demonstrated, native)** — the built-in hermes-agent dispatcher
   claims `ready` tasks off the board, spawns a worker that executes in an isolated
   workspace, and writes a verdict back — `board → worker → verdict → done`, no human in
@@ -189,7 +190,7 @@ Hermes talks to you through **channels** — a pluggable I/O layer. A channel is
             ┌───────────────────────┼───────────────────────┐
             ▼                       ▼                       ▼
       ┌──────────┐            ┌──────────┐            ┌────────────┐
-      │  coder   │            │ planner  │            │ qa-tester  │
+      │  coding  │            │ planner  │            │ qa-tester  │
       └────┬─────┘            └────┬─────┘            └─────┬──────┘
            └──────────────┬───────┴─────────────┬──────────┘
                           ▼                     ▼
@@ -259,8 +260,7 @@ python3.11 -m venv "$HERMES_HOME/venv"
 #    Default: a local llama-swap proxy at http://127.0.0.1:<PORT> (Anthropic Messages,
 #    no /v1 — SDK appends it). A local proxy needs no API key.
 #    For a cloud backend that requires a key:
-#    Vault: Secrets-Kit (macOS) OR 1Password op — see docs/secrets.md
-#    Inject at launch: seckit run --names LLM_API_KEY -- ./scripts/start.sh
+#    Store it in a Hermes-<Purpose> vault and read it at runtime — see docs/secrets.md
 #                   OR op run --env-file .env.op -- ./scripts/start.sh
 
 # 5. Run the smoke test (Anthropic-Messages protocol against your backend)
@@ -348,6 +348,7 @@ below for exactly which parts are live versus reference-only.
 | `.githooks/` | Tracked git hooks — `pre-commit` runs CI's static checks locally before every commit. Enable with `git config core.hooksPath .githooks` (see [docs/testing.md](docs/testing.md)). |
 | `cron/` | Scheduled-maintenance prompt templates (watchdogs, memory sync, board hygiene, backups). |
 | `launchd/` | macOS launchd plist templates for the native gateway processes. |
+| `services/` | Standalone launchd services (CDP Chrome, config guard, kanban ntfy notifier) and a Composio Gmail wiring script. Account-bound values live in `keys/<service>/<name>`, never in the repo; see [docs/services.md](docs/services.md). |
 | `vault/` | Obsidian-style markdown memory vault scaffold (Architecture/, Operations/, Research/, Project/, Meta/, Security/, Strategy/). |
 | `patches/` | Optional patch-overlay templates for the upstream agent tree (advanced; see warnings). |
 | `examples/` | Workflows — `examples/autonomous-loop/` (the board→worker→verdict loop, demonstrated end-to-end on a local backend), plus dog-food examples (`home-assistant-healthcheck/`, `gmail-processing/`). |
@@ -355,7 +356,8 @@ below for exactly which parts are live versus reference-only.
 
 ## Profiles
 
-The scaffold defines four roles — `orchestrator`, `coder`, `planner`, `qa-tester` —
+The scaffold defines four roles — `orchestrator`, `coding`, `planner`, `qa-tester` — plus
+a `chat` front-end (see [claude-code-bridge](docs/claude-code-bridge.md)), all
 documented in [docs/profiles.md](docs/profiles.md). Each is a conceptual role; give them
 names that make sense for your setup.
 
@@ -379,7 +381,7 @@ names that make sense for your setup.
 | Layer-1 + Layer-2 memory: per-profile `MEMORY.md` + markdown vault (file-based) | Maintenance crons: prompt templates, not a running schedule (`cron/`) | Per-request credential isolation (key stays in-process today; needs egress proxy) |
 | Skills include-list / whitelist | HA healthcheck dog-food example (`examples/home-assistant-healthcheck/`) | — |
 | Escalator: a stuck, stalled or given-up card reaches a human once, over Mattermost / Telegram / ntfy (`scripts/resilience/`). **Open defect:** machine-caused failures are kept off the card's breaker only when the backend error reaches the board — a worker that gives up on a dead backend exits `1`, and that is still charged to the card ([docs/resilience.md](docs/resilience.md)) | Wait budget + error taxonomy (`agent.model_wait_budget`, `backend_busy`): real and tested, but the agent's retry loop does not consult them yet — that needs a patch to the installed agent ([docs/resilience.md](docs/resilience.md)) | — |
-| Kanban harness: agents cannot finish their own card; hand-off with evidence is the only exit. With `config/board.yaml` deployed it also enforces the board's edges and its `requires` / `requires_to_leave` on every agent hand-off ([docs/kanban-harness.md](docs/kanban-harness.md)) | Board specification `config/board.yaml`: loaded, linted (zero warnings), and composed with the harness — but a policy layer over the runtime's statuses; the CLI and dashboard still show the raw status names, not these columns | **Specification only:** `scout` and `planner` roles — profile templates exist; no dispatch, hand-off or evidence rule enforces their contract yet |
+| Kanban harness: agents cannot finish their own card; hand-off with evidence is the only exit. With `config/board.yaml` deployed it also enforces the board's edges and its `requires` / `requires_to_leave` on every agent hand-off ([docs/kanban-harness.md](docs/kanban-harness.md)) | Board specification `config/board.yaml`: loaded, linted (zero warnings), and composed with the harness — but a policy layer over the runtime's statuses; the CLI and dashboard still show the raw status names, not these columns | **Specification only:** `scout` role — profile template exists; no dispatch, hand-off or evidence rule enforces its contract yet. `planner` can create and link child cards (tool) and hand them to a lane or return the split card to you, as granted in `harness.yaml`; the harness does not judge the cut's quality (one judgement per child, each fitting its budget) |
 | user_review and the only door to done: QA's pass waits for you on a status nothing dispatches from; `board_cli.py accept` (also `--children`) is the single way to done, `rework` sends it back with the reason ([docs/board-design.md](docs/board-design.md)) | — | Refusing a *human* who closes a card with the runtime's own `complete` — detected and paged instead, by design, since prevention would need a fork of the agent |
 | Board moves no agent makes: a waiting card leaves by itself when what it waits on arrives, and finished cards are archived on a clock — opt-in, `escalator.py --board-file` | — | — |
 

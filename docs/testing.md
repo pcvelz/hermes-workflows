@@ -119,7 +119,7 @@ Runs `tests/smoke/test_kanban_harness.py` with the hermes-agent venv python
   `kanban_db` / dashboard-API access, and writes to the DB file. Read-only CLI
   verbs and ordinary commands stay allowed;
 - an unreadable harness config fails closed;
-- the allowed path works end to end: the dispatcher spawns the coder, which
+- the allowed path works end to end: the dispatcher spawns the coding profile, which
   hands off; the dispatcher spawns QA, which hands off; the task parks in the
   human lane (`blocked`, not spawned); the human's real `hermes kanban
   complete` CLI reaches `done`. The human rework path (comment, reassign,
@@ -150,7 +150,7 @@ It is **double-gated and hard-isolated**:
 - **Venv reuse (read-only):** it reuses the real hermes-agent venv via
   `HERMES_AGENT_VENV` (default `~/.hermes/hermes-agent/venv`) — it only
   *executes* the interpreter, it never writes into the venv.
-- **Config:** copies the coder profile template into the temp home as
+- **Config:** copies the coding profile template into the temp home as
   `config.yaml` (renamed from `.example`), substituting the model name and
   `base_url` from `LLM_BASE_URL`.
 - **One-shot:** runs exactly one non-interactive query

@@ -8,6 +8,8 @@ propose flipping a value in them as part of a change here, and never treat a
 setting found there as the shipped default. A change that belongs to a
 deployment leaves this repo as a diff for its owner to apply.
 
+Which backend each profile uses lives in `config/backends.yaml` (template: `config/backends.yaml.example`); profile configs must match it (`scripts/check-backends.py`).
+
 Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/AGENTS.md
 The columns and the moves each role may make are data, in [config/board.yaml](config/board.yaml).
 This file says what each role is for, what it may never do, and what its hand-off has to carry.
@@ -38,6 +40,8 @@ Three rules cut across every role:
   hand-over is what it carries. One form per transition, checked by the harness.
 - [docs/enforcement.md](docs/enforcement.md) — what an agent CAN do is its toolset.
   A prompt is a hint; an absent tool is a limit.
+- [docs/secrets.md](docs/secrets.md) — where credentials come from: the vault
+  convention, the keychain-token read at runtime, and why agents never call the CLI.
 - [docs/splitting.md](docs/splitting.md) — a card too big for its budget blocks on
   the first failure and goes back to planning, which is scored on whether its
   children finish.

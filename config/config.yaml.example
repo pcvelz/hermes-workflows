@@ -265,7 +265,7 @@ compression:
 approvals:
   # manual = human approves risky tool calls before execution.
   # Options: manual | auto | <plan-defined>
-  # Profiles that only dispatch/notify can relax to auto; the coder should
+  # Profiles that only dispatch/notify can relax to auto; the coding profile should
   # stay on manual until the autonomous loop is trusted.
   mode: manual
   timeout: 60

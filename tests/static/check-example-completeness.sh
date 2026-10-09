@@ -16,6 +16,25 @@ cd "$repo_root"
 
 fail=0
 count=0
+
+# Services templates must exist (the key-file pattern and the installer read them).
+for req in services/services.yaml.example launchd/service.plist.tmpl.example; do
+  if [ -f "$req" ]; then
+    printf 'ok    present %s\n' "$req"
+  else
+    printf 'MISSING %s (required template for the services installer)\n' "$req" >&2
+    fail=1
+  fi
+done
+
+# keys/ is ONE generic rule: a real key file under any service must be ignored.
+if git check-ignore -q keys/example-service/example-key; then
+  printf 'ok    keys/<service>/<name> is git-ignored\n'
+else
+  printf 'LEAK  keys/<service>/<name> is NOT git-ignored (key values could be committed)\n' >&2
+  fail=1
+fi
+
 while IFS= read -r ex; do
   count=$((count + 1))
   # Strip the first ".example" occurrence — handles both the suffix form

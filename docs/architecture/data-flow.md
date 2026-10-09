@@ -41,7 +41,7 @@ A custom **dispatcher** runs as an asyncio loop on approximately a **60-second t
 
 ### One-task-per-profile + dependency gating
 
-A task only becomes `ready` when **all of its declared dependencies are in the `done` state**. Each role profile (orchestrator / coder / planner / qa-tester) runs **at most one active worker at a time** — a second task assigned to the same profile waits until the first completes or is reaped. The orchestrator profile additionally owns the dispatcher loop itself, cron scheduling, and chat gateway interaction.
+A task only becomes `ready` when **all of its declared dependencies are in the `done` state**. Each role profile (orchestrator / coding / planner / qa-tester) runs **at most one active worker at a time** — a second task assigned to the same profile waits until the first completes or is reaped. The orchestrator profile additionally owns the dispatcher loop itself, cron scheduling, and chat gateway interaction.
 
 ### Task state diagram
 
@@ -73,7 +73,7 @@ Each profile is a **separate gateway process** with its own `config.yaml`, `stat
 | Conceptual role | Responsibilities |
 |---|---|
 | orchestrator | Owns the dispatcher loop, cron scheduling, chat gateway, task assignment across profiles |
-| coder | Executes implementation tasks — writing, refactoring, and testing code |
+| coding | Executes implementation tasks — writing, refactoring, and testing code |
 | planner | Research, task decomposition, daily planning notes |
 | qa-tester | Playwright / E2E verification; reports pass/fail; does not fix code |
 

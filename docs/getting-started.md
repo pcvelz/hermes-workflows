@@ -96,8 +96,8 @@ Anthropic Messages or OpenAI wire protocol. The shipped config templates default
 
 A local llama-swap proxy speaks the native Anthropic Messages protocol in front of your
 own inference engine (llama.cpp or LM Studio). Configuration goes in your profile's
-`config.yaml`. This guide uses the **`coder`** profile as the first-run example
-(`$HERMES_HOME/profiles/coder/config.yaml`):
+`config.yaml`. This guide uses the **`coding`** profile as the first-run example
+(`$HERMES_HOME/profiles/coding/config.yaml`):
 
 ```yaml
 # --- model selection: local llama-swap proxy (native-Anthropic) ---
@@ -139,7 +139,7 @@ The Anthropic SDK internally appends `/v1/messages`. Adding `/v1` yourself cause
 For the companion `.env` in your profile directory:
 
 ```bash
-# $HERMES_HOME/profiles/coder/.env
+# $HERMES_HOME/profiles/coding/.env
 LLM_API_KEY=${LLM_API_KEY}   # only if your proxy needs a bearer token; injected by your secrets layer
 ```
 
@@ -284,7 +284,7 @@ process at all) requires a local egress proxy — a future roadmap item. See
 If you are just exploring locally:
 
 ```bash
-# $HERMES_HOME/profiles/coder/.env  — keep this file 0600 and never commit it
+# $HERMES_HOME/profiles/coding/.env  — keep this file 0600 and never commit it
 LLM_API_KEY=local   # local proxy bearer (default); replace if your backend needs a real key
 ```
 

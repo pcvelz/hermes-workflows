@@ -268,8 +268,8 @@ class InstallTest(unittest.TestCase):
         self.assertNotIn("com.hermes-workflows.gateway", self.jobs())
 
     def test_without_profile_the_one_motor_profile_is_chosen_and_named(self):
-        (self.home / "profiles" / "coder").mkdir()
-        (self.home / "profiles" / "coder" / "config.yaml").write_text("kanban: {}\n")
+        (self.home / "profiles" / "coding").mkdir()
+        (self.home / "profiles" / "coding" / "config.yaml").write_text("kanban: {}\n")
         r = self.run_install()
         self.assertEqual(r.returncode, 0, r.stdout)
         self.assertIn("profile orchestrator", r.stdout)

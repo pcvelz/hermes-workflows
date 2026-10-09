@@ -53,7 +53,7 @@ VENV="${HERMES_AGENT_VENV:-$HOME/.hermes/hermes-agent/venv}"
 VENV_PY="$VENV/bin/python"
 
 # Template profile config to seed the isolated home from.
-PROFILE_TEMPLATE="$REPO_ROOT/config/profiles/coder/config.yaml.example"
+PROFILE_TEMPLATE="$REPO_ROOT/config/profiles/coding/config.yaml.example"
 
 # --- Pre-flight -------------------------------------------------------------
 if [ ! -x "$VENV_PY" ]; then

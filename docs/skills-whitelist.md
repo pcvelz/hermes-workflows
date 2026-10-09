@@ -54,7 +54,7 @@ deny-list  =  (all available skills)  −  (your include-list)
 | Role | Skills to INCLUDE | Skills to EXCLUDE (examples) |
 |---|---|---|
 | **orchestrator** | kanban, cronjob, memory, messaging, clarify | code_execution, lsp, browser, web/search |
-| **coder** | file, terminal, code_execution, lsp, memory, kanban, clarify | browser, art, social, messaging |
+| **coding** | file, terminal, code_execution, lsp, memory, kanban, clarify | browser, art, social, messaging |
 | **planner** | web, kanban, memory, clarify | code_execution, lsp, browser, art |
 | **qa-tester** | browser, terminal, code_execution, memory, kanban, clarify | lsp, web/search, art, social |
 

@@ -1,4 +1,4 @@
 name: file-read
-version: 0.1.0
+version: 1.0.0
 description: "The file_read toolset: open, list and search files with no write path. Refuses scripts and executables (extension, executable bit, #! line) and any op it cannot classify. Grant it instead of `file` to a role that must not edit."
 author: "Hermes Workflows"

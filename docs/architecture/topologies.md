@@ -17,7 +17,7 @@ ${HERMES_HOME}/
 ├── skills/              # whitelisted skill prompts injected per-turn
 └── profiles/            # per-role profile directories
     ├── orchestrator/
-    ├── coder/
+    ├── coding/
     ├── planner/
     └── qa-tester/
 ```
@@ -35,7 +35,7 @@ ${HERMES_HOME}/profiles/<role>/
 └── plans/           # task plans produced by this profile
 ```
 
-This scaffold ships four generalized role names: `orchestrator`, `coder`, `planner`, and `qa-tester`. Rename them to fit your workflow.
+This scaffold ships four generalized role names: `orchestrator`, `coding`, `planner`, and `qa-tester`. Rename them to fit your workflow.
 
 ### launchd gateways
 

@@ -36,7 +36,7 @@ if _REAL in _HERMES.parents or _HERMES == _REAL:
 _HERMES.mkdir(parents=True)
 # The dispatcher must not split cards outside a tool call (T43).
 (_HERMES / "config.yaml").write_text("kanban:\n  auto_decompose: false\n")
-for prof in ("coder", "qa-tester"):
+for prof in ("coding", "coding-worker", "qa-tester"):
     (_HERMES / "profiles" / prof).mkdir(parents=True)
 _LOG = _HERMES / "logs" / "kanban-harness.log"
 
@@ -134,10 +134,10 @@ class Contract(unittest.TestCase):
         return kb.get_task(self.conn, tid).status
 
     def test_T1_a_worker_cannot_complete_its_own_card(self):
-        tid = self.running_card("coder")
+        tid = self.running_card("coding")
         before = _LOG.read_text() if _LOG.exists() else ""
 
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             message = get_pre_tool_call_block_message(
                 "kanban_complete", {"task_id": tid, "summary": "done"})
             result = json.loads(model_tools.handle_function_call(
@@ -164,7 +164,7 @@ class Contract(unittest.TestCase):
         incident = _SCRATCH / "harness-as-of-17-24.yaml"
         incident.write_text(
             "enabled: true\nmode: warn\n"
-            "roles:\n  coding: {profiles: [coder]}\n  qa: {profiles: [qa-tester]}\n"
+            "roles:\n  coding: {profiles: [coding]}\n  qa: {profiles: [qa-tester]}\n"
             "  user: {human: true, assignee: user}\n"
             "transitions:\n"
             "  - {from_role: coding, action: handoff, to_role: qa, status: ready}\n"
@@ -172,12 +172,12 @@ class Contract(unittest.TestCase):
             "always_allow:\n  tools: [kanban_show, kanban_list, kanban_heartbeat, kanban_comment]\n"
             "boards:\n  \"*\": {}\n"
         )
-        tid = self.running_card("coder")
+        tid = self.running_card("coding")
         before = _LOG.read_text() if _LOG.exists() else ""
         old = os.environ["KANBAN_HARNESS_FILE"]
         os.environ["KANBAN_HARNESS_FILE"] = str(incident)
         try:
-            with Worker(tid, "coder"):
+            with Worker(tid, "coding"):
                 message = get_pre_tool_call_block_message(
                     "kanban_complete", {"task_id": tid, "summary": "done"})
                 result = json.loads(model_tools.handle_function_call(
@@ -347,7 +347,7 @@ class UsersHand(unittest.TestCase):
         attempts = {
             "no tty (a pipe or a tool call)": dict(tty=False),
             "under a profile": dict(HERMES_PROFILE="coding"),
-            "a profile's HERMES_HOME": dict(HERMES_HOME=str(_HERMES / "profiles" / "coder")),
+            "a profile's HERMES_HOME": dict(HERMES_HOME=str(_HERMES / "profiles" / "coding")),
             "inside a worker": dict(HERMES_KANBAN_TASK=tid),
         }
         for label, kw in attempts.items():
@@ -364,7 +364,7 @@ class UsersHand(unittest.TestCase):
                 written = (_LOG.read_text() if _LOG.exists() else "")[len(before):]
                 self.assertIn("[BLOCKED]", written, f"{label}: no refusal on disk")
                 self.assertIn("tool=board_cli reopen", written)
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             _apply_env()
             self.assertIsNotNone(get_pre_tool_call_block_message(
                 "terminal", {"command": f"python3 {BOARD_CLI} reopen {tid} --reason x"}))
@@ -520,7 +520,7 @@ class TheTable(unittest.TestCase):
         tid = None
         conn = kb.connect()
         try:
-            tid = kb.create_task(conn, title="board file", assignee="coder")
+            tid = kb.create_task(conn, title="board file", assignee="coding")
             kb.dispatch_once(conn, spawn_fn=lambda task, ws, board=None: None)
         finally:
             conn.close()
@@ -538,7 +538,7 @@ class TheTable(unittest.TestCase):
                 with self.subTest(label):
                     os.environ["KANBAN_BOARD_FILE"] = str(path)
                     before = _LOG.read_text() if _LOG.exists() else ""
-                    with Worker(tid, "coder"):
+                    with Worker(tid, "coding"):
                         msg = get_pre_tool_call_block_message(
                             "kanban_handoff", {"summary": "done"})
                         res = json.loads(model_tools.handle_function_call(
@@ -613,7 +613,7 @@ _PERMISSIVE = """
 enabled: true
 mode: warn
 roles:
-  coding: {profiles: [coder]}
+  coding: {profiles: [coding]}
   qa: {profiles: [qa-tester]}
   user: {human: true, assignee: user}
 transitions:
@@ -656,7 +656,7 @@ class Gate(unittest.TestCase):
         os.environ["KANBAN_HARNESS_FILE"] = str(path)
         return path
 
-    def running_card(self, profile="coder"):
+    def running_card(self, profile="coding"):
         tid = kb.create_task(self.conn, title="gate card", assignee=profile)
         kb.dispatch_once(self.conn, spawn_fn=lambda task, ws, board=None: None)
         return tid
@@ -696,11 +696,11 @@ class Gate(unittest.TestCase):
             ("terminal", {"command": "sqlite3 ~/.hermes/kanban.db \"update tasks set status='done'\""}),
         ):
             with self.subTest(tool=tool, args=args):
-                self.assert_refused(tid, "coder", tool, args, "permissive")
+                self.assert_refused(tid, "coding", tool, args, "permissive")
 
     # T4 --------------------------------------------------------------------
     def test_T4_no_key_or_variable_relaxes_a_refusal(self):
-        base = ("roles:\n  coding: {profiles: [coder]}\n  user: {human: true, assignee: user}\n"
+        base = ("roles:\n  coding: {profiles: [coding]}\n  user: {human: true, assignee: user}\n"
                 "transitions: []\n")
         relaxers = {
             "mode": "mode: warn\n",
@@ -715,20 +715,20 @@ class Gate(unittest.TestCase):
                     harness.load_config()
                 self.assertIn(key.split(".")[-1], str(ctx.exception))
                 tid = self.running_card()
-                self.assert_refused(tid, "coder", "kanban_complete",
+                self.assert_refused(tid, "coding", "kanban_complete",
                                     {"task_id": tid, "summary": "x"}, key)
         self.config(base, "plain.yaml")
         os.environ["KANBAN_HARNESS_MODE"] = "warn"
         tid = self.running_card()
-        self.assert_refused(tid, "coder", "kanban_complete",
+        self.assert_refused(tid, "coding", "kanban_complete",
                             {"task_id": tid, "summary": "x"}, "env KANBAN_HARNESS_MODE")
 
     # T5 --------------------------------------------------------------------
     def test_T5_every_board_is_harnessed(self):
-        self.config("roles:\n  coding: {profiles: [coder]}\n  user: {human: true, assignee: user}\n"
+        self.config("roles:\n  coding: {profiles: [coding]}\n  user: {human: true, assignee: user}\n"
                     "transitions: []\nboards:\n  only-this-one: {}\n", "one-board.yaml")
         tid = self.running_card()
-        self.assert_refused(tid, "coder", "kanban_complete",
+        self.assert_refused(tid, "coding", "kanban_complete",
                             {"task_id": tid, "summary": "x", "board": "unlisted-board"},
                             "unlisted board")
 
@@ -742,25 +742,25 @@ class Gate(unittest.TestCase):
             "    - {from: in_progress, to: user_review, by: qa,"))
         os.environ["KANBAN_BOARD_FILE"] = str(board)
         tid = self.running_card()
-        self.assert_refused(tid, "coder", "kanban_complete",
+        self.assert_refused(tid, "coding", "kanban_complete",
                             {"task_id": tid, "summary": "x"}, "both permissive")
 
     # T7 --------------------------------------------------------------------
     def test_T7_a_second_config_in_the_profile_home_is_not_read(self):
         self.config(harness_example(), "strict-t7.yaml")
         (_HERMES / "harness.yaml").write_text(_PERMISSIVE)
-        (_HERMES / "profiles" / "coder" / "harness.yaml").write_text(_PERMISSIVE)
+        (_HERMES / "profiles" / "coding" / "harness.yaml").write_text(_PERMISSIVE)
         try:
             tid = self.running_card()
-            self.assert_refused(tid, "coder", "kanban_complete",
+            self.assert_refused(tid, "coding", "kanban_complete",
                                 {"task_id": tid, "summary": "x"}, "shadow config")
         finally:
             (_HERMES / "harness.yaml").unlink()
-            (_HERMES / "profiles" / "coder" / "harness.yaml").unlink()
+            (_HERMES / "profiles" / "coding" / "harness.yaml").unlink()
 
     # T8 --------------------------------------------------------------------
     def test_T8_always_allow_holds_read_only_moves_only(self):
-        base = ("roles:\n  coding: {profiles: [coder]}\n  user: {human: true, assignee: user}\n"
+        base = ("roles:\n  coding: {profiles: [coding]}\n  user: {human: true, assignee: user}\n"
                 "transitions: []\n")
         for label, extra in {
             "shell verb complete": "always_allow:\n  shell_verbs: [list, complete]\n",
@@ -774,7 +774,7 @@ class Gate(unittest.TestCase):
 
     # T9 --------------------------------------------------------------------
     def test_T9_the_side_door_baseline_cannot_be_removed(self):
-        self.config("roles:\n  coding: {profiles: [coder]}\n  user: {human: true, assignee: user}\n"
+        self.config("roles:\n  coding: {profiles: [coding]}\n  user: {human: true, assignee: user}\n"
                     "transitions: []\nside_doors:\n  deny_patterns: []\n  deny_path_patterns: []\n",
                     "no-doors.yaml")
         tid = self.running_card()
@@ -785,7 +785,7 @@ class Gate(unittest.TestCase):
             f"python3 scripts/resilience/board_cli.py accept {tid}",
         ):
             with self.subTest(command):
-                self.assert_refused(tid, "coder", "terminal", {"command": command}, command)
+                self.assert_refused(tid, "coding", "terminal", {"command": command}, command)
 
     # T24 -------------------------------------------------------------------
     def test_T24_no_status_verb_from_a_worker_shell(self):
@@ -796,15 +796,15 @@ class Gate(unittest.TestCase):
                      f"unlink {tid} t_other", f"archive {tid}", f"complete {tid}",
                      f"edit {tid} --title x"):
             with self.subTest(verb):
-                self.assert_refused(tid, "coder", "terminal",
+                self.assert_refused(tid, "coding", "terminal",
                                     {"command": f"hermes kanban {verb}"}, verb)
 
     # T25 -------------------------------------------------------------------
     def test_T25_a_batch_with_one_forbidden_card_is_refused_whole(self):
         self.config(harness_example(), "t25.yaml")
         mine = self.running_card()
-        other = kb.create_task(self.conn, title="other", assignee="coder")
-        self.assert_refused(mine, "coder", "terminal",
+        other = kb.create_task(self.conn, title="other", assignee="coding")
+        self.assert_refused(mine, "coding", "terminal",
                             {"command": f"hermes kanban complete {mine} {other}"}, "batch")
         self.assertNotEqual(self.status(other), "done")
 
@@ -837,7 +837,7 @@ class Generated(Gate):
         spec = board_mod.load_board(BOARD_YAML)
         os.environ["KANBAN_BOARD_FILE"] = str(BOARD_YAML)
         self.config(harness_example(), "t2.yaml")
-        roles = {"coder": "coding", "qa-tester": "qa", "stranger": None}
+        roles = {"coding": "coding", "qa-tester": "qa", "stranger": None}
         refused = 0
         for from_status in sorted(kb.VALID_STATUSES):
             for profile, role in roles.items():
@@ -867,12 +867,12 @@ class Generated(Gate):
         self.config(harness_example(), "t2h.yaml")
         for from_status in ("ready", "blocked", "scheduled", "done", "triage"):
             with self.subTest(from_status):
-                tid = kb.create_task(self.conn, title="t2h", assignee="coder")
+                tid = kb.create_task(self.conn, title="t2h", assignee="coding")
                 with self.conn:
                     self.conn.execute("UPDATE tasks SET status = ? WHERE id = ?",
                                       (from_status, tid))
                 before_log = _LOG.read_text() if _LOG.exists() else ""
-                with Worker(tid, "coder"):
+                with Worker(tid, "coding"):
                     result = json.loads(model_tools.handle_function_call(
                         "kanban_handoff", {"summary": "handing off"}))
                 self.assertIn("error", result, f"hand-off from {from_status} went through")
@@ -888,12 +888,12 @@ class Generated(Gate):
         os.environ["KANBAN_BOARD_FILE"] = str(BOARD_YAML)
         self.config(harness_example(), "t2p.yaml")
         rows = {  # (role, profile, to_role, question) -> expected (status, assignee)
-            ("coding", "coder", "qa", False): ("ready", "qa-tester"),        # hand-off
-            ("coding", "coder", "user", True): ("blocked", "user"),          # question
-            ("qa", "qa-tester", "coding", False): ("ready", "coder"),        # rework
+            ("coding", "coding", "qa", False): ("ready", "qa-tester"),        # hand-off
+            ("coding", "coding", "user", True): ("blocked", "user"),          # question
+            ("qa", "qa-tester", "coding", False): ("ready", "coding"),        # rework
             ("qa", "qa-tester", "user", False): ("scheduled", "user"),       # user review
             ("qa", "qa-tester", "user", True): ("blocked", "user"),          # question
-            ("coding", "coder", None, False): ("ready", "qa-tester"),        # default target
+            ("coding", "coding", None, False): ("ready", "qa-tester"),        # default target
             ("qa", "qa-tester", None, False): ("scheduled", "user"),         # default target
         }
         for (role, profile, to_role, question), (status, assignee) in rows.items():
@@ -933,7 +933,7 @@ class Routes(Gate):
             ("terminal", {"command": "hermes kanban swarm 'ship it'"}),   # completes its root card
         ):
             with self.subTest(tool=tool, args=str(args)[:60]):
-                self.assert_refused(tid, "coder", tool, args, "route to done")
+                self.assert_refused(tid, "coding", tool, args, "route to done")
         self.assertNotEqual(self.status(tid), "done")
 
     # T11 -------------------------------------------------------------------
@@ -942,13 +942,13 @@ class Routes(Gate):
         profile (that spawn is upstream-internal, listed UNPREVENTED). What the
         harness guarantees: the spawned reviewer cannot set done."""
         self.config(harness_example(), "t11.yaml")
-        tid = kb.create_task(self.conn, title="review lane", assignee="coder")
+        tid = kb.create_task(self.conn, title="review lane", assignee="coding")
         with self.conn:
             self.conn.execute("UPDATE tasks SET status = 'review' WHERE id = ?", (tid,))
         for tool, args in (("kanban_complete", {"task_id": tid, "summary": "merged"}),
                            ("terminal", {"command": f"hermes kanban complete {tid}"})):
             with self.subTest(tool):
-                self.assert_refused(tid, "coder", tool, args, "reviewer")
+                self.assert_refused(tid, "coding", tool, args, "reviewer")
         self.assertEqual(self.status(tid), "review")
 
     # T12 -------------------------------------------------------------------
@@ -965,7 +965,7 @@ class Routes(Gate):
             ("patch", {"path": str(ledger), "old_string": "", "new_string": "x"}),
         ):
             with self.subTest(tool=tool):
-                self.assert_refused(tid, "coder", tool, args, "forge the trace")
+                self.assert_refused(tid, "coding", tool, args, "forge the trace")
         self.assertIsNone(board_cli.accept_trace(self.conn, tid))
 
     # T26 -------------------------------------------------------------------
@@ -979,7 +979,7 @@ class Routes(Gate):
             ("terminal", {"command": "sqlite3 ~/.hermes/kanban.db .tables"}),
         ):
             with self.subTest(tool=tool, args=str(args)[:50]):
-                msg = self.assert_refused(tid, "coder", tool, args, "T26")
+                msg = self.assert_refused(tid, "coding", tool, args, "T26")
                 self.assertIn("coding", msg, "the refusal does not name the role")
                 self.assertIn("This refusal is final", msg)
                 self.assertIn("kanban_handoff", msg, "the refusal does not name the legal move")
@@ -989,8 +989,8 @@ class Routes(Gate):
 
     def test_T26_hand_off_and_lockdown_refusals_are_final_too(self):
         self.config(harness_example(), "t26b.yaml")
-        idle = kb.create_task(self.conn, title="not running", assignee="coder")
-        with Worker(idle, "coder"):
+        idle = kb.create_task(self.conn, title="not running", assignee="coding")
+        with Worker(idle, "coding"):
             res = json.loads(model_tools.handle_function_call(
                 "kanban_handoff", {"summary": "x"}))
         self.assertIn("This refusal is final", res.get("error", ""), res)
@@ -999,20 +999,20 @@ class Routes(Gate):
         for tool, args in (("kanban_complete", {"task_id": tid, "summary": "x"}),
                            ("terminal", {"command": f"hermes kanban complete {tid}"})):
             with self.subTest(tool):
-                msg = self.assert_refused(tid, "coder", tool, args, "lockdown")
+                msg = self.assert_refused(tid, "coding", tool, args, "lockdown")
                 self.assertIn("This refusal is final", msg)
 
     # T29 -------------------------------------------------------------------
     def test_T29_an_idempotency_key_never_hands_back_a_finished_card(self):
         self.config(harness_example(), "t29.yaml")
-        done_card = kb.create_task(self.conn, title="finished", assignee="coder",
+        done_card = kb.create_task(self.conn, title="finished", assignee="coding",
                                    idempotency_key="batch-7")
         with self.conn:
             self.conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (done_card,))
         tid = self.running_card()
         before = self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-        msg = self.assert_refused(tid, "coder", "kanban_create",
-                                  {"title": "again", "assignee": "coder",
+        msg = self.assert_refused(tid, "coding", "kanban_create",
+                                  {"title": "again", "assignee": "coding",
                                    "idempotency_key": "batch-7"}, "reused key")
         self.assertIn(done_card, msg, "the refusal does not name the finished card")
         self.assertEqual(self.conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0], before)
@@ -1114,7 +1114,7 @@ class Audit(unittest.TestCase):
 
     def test_T21_a_status_change_not_in_the_table_pages(self):
         now = int(time.time())
-        tid = kb.create_task(self.conn, title="audited", assignee="coder")
+        tid = kb.create_task(self.conn, title="audited", assignee="coding")
         self.move(tid, "running", "claimed", at=now)
         self.tick(now)
         # the user's own terminal: running -> ready (unblock/promote) is no row
@@ -1126,14 +1126,14 @@ class Audit(unittest.TestCase):
 
     def test_T28_one_page_per_illegal_move_and_none_for_legal_ones(self):
         now = int(time.time())
-        legal = kb.create_task(self.conn, title="legal", assignee="coder")
-        parent = kb.create_task(self.conn, title="parent", assignee="coder")
+        legal = kb.create_task(self.conn, title="legal", assignee="coding")
+        parent = kb.create_task(self.conn, title="parent", assignee="coding")
         with self.conn:
             self.conn.execute("INSERT INTO task_links (parent_id, child_id) VALUES (?, ?)",
                               (parent, legal))
         self.move(legal, "todo", "created", at=now)
         self.move(parent, "done", "completed", {"by": "accept"}, at=now)
-        illegal = kb.create_task(self.conn, title="illegal", assignee="coder")
+        illegal = kb.create_task(self.conn, title="illegal", assignee="coding")
         self.move(illegal, "running", "claimed", at=now)
         self.tick(now)
         self.move(illegal, "blocked", "blocked", {"by": "cli"}, at=now + 10)
@@ -1311,7 +1311,7 @@ class TheGateRunsEveryLayer(unittest.TestCase):
         shutil.copy(REPO / "tests" / "lib" / "common.sh", tree / "tests" / "lib" / "common.sh")
         ok = 'pass "fake layer ran"\n'
         for name in ("bridge", "dispatcher", "kanban-harness", "resilience",
-                     "board", "harness-contract"):
+                     "board", "harness-contract", "claude-code-bridge"):
             (tree / "tests" / "smoke" / f"{name}.sh").write_text(ok)
         # the LLM layer runs in its own process, so it brings its own helpers
         (tree / "tests" / "smoke" / "llm.sh").write_text(
@@ -1338,12 +1338,21 @@ class ProfileIsNotARole(Gate):
 
     HINT = "is a profile, not a role"
 
+    def worker_harness(self):
+        """The shipped harness with its worker profile renamed to coding-worker.
+        The profile must differ from the role name coding, or the profile and the
+        role are the same token and the refusal under test cannot be told apart."""
+        text = harness_example()
+        old = "  coding:\n    profiles: [coding]\n"
+        self.assertIn(old, text)
+        return text.replace(old, "  coding:\n    profiles: [coding-worker]\n", 1)
+
     def handoff_to(self, to_role):
         os.environ["KANBAN_BOARD_FILE"] = str(BOARD_YAML)
-        self.config(harness_example(), "t37.yaml")
-        tid = self.running_card("coder")
+        self.config(self.worker_harness(), "t37.yaml")
+        tid = self.running_card("coding-worker")
         before_log = _LOG.read_text() if _LOG.exists() else ""
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding-worker"):
             res = json.loads(model_tools.handle_function_call(
                 "kanban_handoff", {"summary": form_summary(), "to_role": to_role}))
         written = (_LOG.read_text() if _LOG.exists() else "")[len(before_log):]
@@ -1355,7 +1364,7 @@ class ProfileIsNotARole(Gate):
         self.conn = kb.connect()
         card = kb.get_task(self.conn, tid)
         self.assertEqual(card.status, "running", "the board moved")
-        self.assertEqual(card.assignee, "coder", "the assignee changed")
+        self.assertEqual(card.assignee, "coding-worker", "the assignee changed")
         self.assertIn("[BLOCKED]", written, "nothing on disk")
         self.assertIn("tool=kanban_handoff", written)
         return res["error"]
@@ -1398,17 +1407,17 @@ class ProfileIsNotARole(Gate):
         for key, old, new, role in (
             ("to_role", "action: handoff, to_role: qa,", "action: handoff, to_role: qa-tester,", "qa"),
             ("from_role", "{from_role: coding, action: handoff",
-             "{from_role: coder, action: handoff", "coding"),
+             "{from_role: coding-worker, action: handoff", "coding"),
         ):
             with self.subTest(key):
-                text = harness_example()
+                text = self.worker_harness()
                 self.assertIn(old, text)
                 bad = text.replace(old, new, 1)
                 err = self.load_error(bad, f"t37-{key}.yaml")
                 self.assertIn(self.HINT, err)
                 self.assertIn(f"In harness.yaml, write {key}: {role}", err)
                 tid = self.running_card()
-                self.assert_refused(tid, "coder", "kanban_complete",
+                self.assert_refused(tid, "coding-worker", "kanban_complete",
                                     {"task_id": tid, "summary": "x"}, f"R5 {key}")
 
     def test_T39_a_harness_role_the_board_does_not_declare_fails_the_load(self):
@@ -1445,14 +1454,14 @@ class ProfileIsNotARole(Gate):
         return board_mod, board_mod.load_board(path)
 
     def profile_role(self):
-        return {"coder": "coding", "qa-tester": "qa"}
+        return {"coding-worker": "coding", "qa-tester": "qa"}
 
     def test_T37_R6_a_profile_in_board_yaml_by_names_its_role(self):
-        board_mod, spec = self.bad_board("coder")
+        board_mod, spec = self.bad_board("coding-worker")
         issues = [i for i in board_mod.validate(spec, profile_role=self.profile_role())
                   if i.code == "move-unknown-actor"]
         self.assertTrue(issues, "a profile in by: was accepted")
-        self.assertIn("'coder' " + self.HINT, issues[0].message)
+        self.assertIn("'coding-worker' " + self.HINT, issues[0].message)
         self.assertIn("In board.yaml, write by: coding", issues[0].message)
 
     def test_T37_R7_board_yaml_value_that_is_neither_gets_no_hint(self):
@@ -1463,7 +1472,7 @@ class ProfileIsNotARole(Gate):
         self.assertFalse(any(self.HINT in m for m in msgs), msgs)
 
     def test_T37_R8_the_hint_never_changes_the_verdict(self):
-        board_mod, spec = self.bad_board("coder")
+        board_mod, spec = self.bad_board("coding-worker")
         without = board_mod.validate(spec)
         with_map = board_mod.validate(spec, profile_role=self.profile_role())
         self.assertEqual(sorted((i.severity, i.code) for i in without),
@@ -1619,7 +1628,7 @@ from hermes_cli import kanban_db as kb
 conn = kb.connect()
 res = {"module": kb.__file__}
 def card(status):
-    tid = kb.create_task(conn, title="t33a", assignee="coder")
+    tid = kb.create_task(conn, title="t33a", assignee="coding")
     with conn:
         conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, tid))
     return tid
@@ -1654,7 +1663,7 @@ from hermes_cli import kanban_db as kb
 import plugin_api
 conn = kb.connect()
 def card(status):
-    tid = kb.create_task(conn, title="dash", assignee="coder")
+    tid = kb.create_task(conn, title="dash", assignee="coding")
     with conn:
         conn.execute("UPDATE tasks SET status = ? WHERE id = ?", (status, tid))
     return tid
@@ -1695,7 +1704,7 @@ class AgentPatches(unittest.TestCase):
 
     #: an agent caller for the gate: an inside-the-runtime identity, not a
     #: person at a terminal or the dashboard (neither sets these).
-    AGENT_ENV = {"HERMES_KANBAN_TASK": "t_x", "HERMES_PROFILE": "coder"}
+    AGENT_ENV = {"HERMES_KANBAN_TASK": "t_x", "HERMES_PROFILE": "coding"}
 
     # T33a ------------------------------------------------------------------
     def test_T33a_with_a_spec_deployed_no_terminal_write_leaves_the_table(self):
@@ -1763,7 +1772,7 @@ from hermes_cli import kanban_db as kb
 import board_cli, escalator
 conn = kb.connect()
 a = kb.create_task(conn, title="accept me", assignee="user")
-d = kb.create_task(conn, title="old done", assignee="coder")
+d = kb.create_task(conn, title="old done", assignee="coding")
 with conn:
     conn.execute("UPDATE tasks SET status = 'scheduled' WHERE id = ?", (a,))
     conn.execute("UPDATE tasks SET status = 'done' WHERE id = ?", (d,))
@@ -1868,13 +1877,13 @@ print(json.dumps({r[0]: r[1] for r in conn.execute("SELECT id, status FROM tasks
 import json
 from hermes_cli import kanban_db as kb
 conn = kb.connect()
-tid = kb.create_task(conn, title="t33b", assignee="coder")
+tid = kb.create_task(conn, title="t33b", assignee="coding")
 kb.dispatch_once(conn, spawn_fn=lambda task, ws, board=None: None)
 import os
 os.environ["HERMES_KANBAN_TASK"] = tid
 import model_tools
 res = {"card": tid, "before": kb.get_task(conn, tid).status}
-args = {"task_id": tid, "summary": "x", "reason": "x", "title": "x", "assignee": "coder",
+args = {"task_id": tid, "summary": "x", "reason": "x", "title": "x", "assignee": "coding",
         "body": "x", "parent_id": tid, "child_id": tid, "note": "x"}
 for name in TOOLS:
     res[name] = json.loads(model_tools.handle_function_call(name, dict(args)))
@@ -1885,7 +1894,7 @@ res["cards"] = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
 res["comments"] = conn.execute("SELECT COUNT(*) FROM task_comments").fetchone()[0]
 print(json.dumps(res))
 '''.replace("TOOLS", repr(sorted(tools)))
-        out, log, _ = _run_patched(script, HERMES_PROFILE="coder")
+        out, log, _ = _run_patched(script, HERMES_PROFILE="coding")
         self.assertEqual(out.returncode, 0, out.stderr[-2000:])
         res = json.loads(out.stdout.strip().splitlines()[-1])
         self.assertEqual(res["after"], res["before"], "the board moved")
@@ -2005,13 +2014,13 @@ class HandoffFormGate(Gate):
 
     def tool_ran(self, tid, tool, args, result):
         """A tool call as upstream reports it to post_tool_call."""
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             model_tools._emit_post_tool_call_hook(function_name=tool, function_args=args,
                                                   result=result)
 
     def hand_off(self, tid, summary):
         before_log = _LOG.read_text() if _LOG.exists() else ""
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             res = json.loads(model_tools.handle_function_call(
                 "kanban_handoff", {"summary": summary}))
         written = (_LOG.read_text() if _LOG.exists() else "")[len(before_log):]
@@ -2025,7 +2034,7 @@ class HandoffFormGate(Gate):
         self.conn = kb.connect()
         card = kb.get_task(self.conn, tid)
         self.assertEqual(card.status, "running", "the board moved")
-        self.assertEqual(card.assignee, "coder", "the assignee changed")
+        self.assertEqual(card.assignee, "coding", "the assignee changed")
         self.assertIn("[BLOCKED]", written, "nothing on disk")
         self.assertIn("tool=kanban_handoff", written)
         msg = res["error"]
@@ -2102,7 +2111,7 @@ class HandoffForm(HandoffFormGate):
         # A worker must never be refused for a file it did not touch.
         ws = self.git_workspace()
         tid = self.running_card()
-        with Worker(tid, "coder"):      # the run starts: its first tool call
+        with Worker(tid, "coding"):      # the run starts: its first tool call
             get_pre_tool_call_block_message("read_file", {"path": str(ws / "tracked.py")})
         (ws / "tracked.py").write_text("a = 2  # changed outside any file tool\n" + _REAL_CODE)
         (ws / "new.txt").write_text("made by the run\n" + _REAL_CODE)
@@ -2154,7 +2163,7 @@ class HandoffForm(HandoffFormGate):
 
     # the refusal teaches --------------------------------------------------------
     def test_T38_the_refusal_quotes_the_prompt_line_that_names_the_form(self):
-        self.soul.write_text("You are the coder.\n"
+        self.soul.write_text("You are the coding agent.\n"
                              "Every hand-off follows HANDOVER.md, field by field.\n"
                              "Be brief.\n")
         tid = self.running_card()
@@ -2162,7 +2171,7 @@ class HandoffForm(HandoffFormGate):
         self.assertIn("Every hand-off follows HANDOVER.md, field by field.", msg)
 
     def test_T38_the_refusal_says_when_the_prompt_does_not_mention_the_form(self):
-        self.soul.write_text("You are the coder.\n")
+        self.soul.write_text("You are the coding agent.\n")
         tid = self.running_card()
         msg = self.refused(tid, form_summary(drop="Doubts"))
         self.assertIn("your system prompt does not mention HANDOVER.md", msg)
@@ -2330,7 +2339,7 @@ class Bypasses(Gate):
                 if pay == "split":
                     cmd = _SPLIT_PREFIX + cmd
                 with self.subTest(form=form, payload=pay, cmd=cmd):
-                    msg = self.assert_refused(tid, "coder", "terminal", {"command": cmd},
+                    msg = self.assert_refused(tid, "coding", "terminal", {"command": cmd},
                                               f"{form}/{pay}")
                     self.assertIn("write the command literally", msg)
                     n += 1
@@ -2342,7 +2351,7 @@ class Bypasses(Gate):
         tid = self.running_card()
         for form, build in _HIDDEN_PROGRAM.items():
             with self.subTest(form=form):
-                self.assert_refused(tid, "coder", "terminal",
+                self.assert_refused(tid, "coding", "terminal",
                                     {"command": build("pytest", "-q")}, form)
 
     def test_T40_an_unreadable_board_or_verb_after_literal_hermes_is_refused(self):
@@ -2350,12 +2359,12 @@ class Bypasses(Gate):
         for cmd in _HERMES_UNRESOLVED:
             cmd = cmd.format(tid=tid)
             with self.subTest(cmd=cmd):
-                msg = self.assert_refused(tid, "coder", "terminal", {"command": cmd}, cmd)
+                msg = self.assert_refused(tid, "coding", "terminal", {"command": cmd}, cmd)
                 self.assertIn("write the command literally", msg)
 
     def test_T40_literal_wrappers_and_bodies_are_resolved_not_refused(self):
         tid = self.running_card()
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             for cmd in _RESOLVABLE:
                 with self.subTest(cmd=cmd):
                     self.assertIsNone(get_pre_tool_call_block_message(
@@ -2368,7 +2377,7 @@ class Bypasses(Gate):
                     f"bash -c 'hermes kanban complete {tid}'",
                     f"nohup hermes kanban complete {tid}"):
             with self.subTest(cmd=cmd):
-                self.assert_refused(tid, "coder", "terminal", {"command": cmd}, cmd)
+                self.assert_refused(tid, "coding", "terminal", {"command": cmd}, cmd)
 
     # T41 -------------------------------------------------------------------
     def test_T41_a_script_is_not_prevented_and_the_contract_says_so(self):
@@ -2377,7 +2386,7 @@ class Bypasses(Gate):
         tid = self.running_card()
         script = _SCRATCH / "t41.sh"
         script.write_text(f"hermes kanban complete {tid}\n")
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             self.assertIsNone(get_pre_tool_call_block_message(
                 "terminal", {"command": f"bash {script}"}))
         self.assertIn("script", _unprevented_section().lower())
@@ -2388,7 +2397,7 @@ class Bypasses(Gate):
         code = ('import subprocess, os\n'
                 'h = os.environ.get("HERMES", "hermes")\n'
                 f'subprocess.run([h, "kanban", "complete", "{tid}"])\n')
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             self.assertIsNone(get_pre_tool_call_block_message("execute_code", {"code": code}))
             # The shell rule does not apply to code: `$` in a Python string is
             # not a program word.
@@ -2398,7 +2407,7 @@ class Bypasses(Gate):
         for code in ("from hermes_cli import kanban_db",
                      f"import sqlite3; sqlite3.connect('{db}')"):
             with self.subTest(code=code):   # what is caught stays caught
-                self.assert_refused(tid, "coder", "execute_code", {"code": code}, code)
+                self.assert_refused(tid, "coding", "execute_code", {"code": code}, code)
         section = _unprevented_section()
         self.assertIn("code execution", section.lower())
         self.assertIn("should not hold a tool that can", section)
@@ -2414,7 +2423,7 @@ class Bypasses(Gate):
                 with self.assertRaises(harness.HarnessConfigError) as caught:
                     harness.load_config()
                 self.assertIn("auto_decompose", str(caught.exception))
-                self.assert_refused(tid, "coder", "kanban_create", {"title": "x"}, label)
+                self.assert_refused(tid, "coding", "kanban_create", {"title": "x"}, label)
         (_HERMES / "config.yaml").unlink()
         with self.assertRaises(harness.HarnessConfigError):
             harness.load_config()
@@ -2457,7 +2466,7 @@ class Bypasses(Gate):
                 with self.assertRaises(harness.HarnessConfigError) as caught:
                     harness.load_config()
                 self.assertIn(key, str(caught.exception))
-                self.assert_refused(tid, "coder", "kanban_create", {"title": "x"}, key)
+                self.assert_refused(tid, "coding", "kanban_create", {"title": "x"}, key)
         os.environ["KANBAN_BOARD_FILE"] = str(BOARD_YAML)
         harness.load_config()   # the shipped pair agrees
 
@@ -2482,7 +2491,7 @@ class Bypasses(Gate):
                    "from tools.kanban_tools import _handle_create",
                    # a class, not a list: an assembled name reaches it too
                    'import importlib; importlib.import_module("hermes" + "_cli.kanban")')
-        with Worker(tid, "coder"):
+        with Worker(tid, "coding"):
             for code in imports:
                 with self.subTest(code=code):
                     self.assertIsNone(get_pre_tool_call_block_message(
@@ -2601,7 +2610,7 @@ class HandoffDeliverable(HandoffFormGate):
     def test_T47_a_file_the_run_deleted_passes(self):
         ws = self.git_workspace()
         tid = self.running_card()
-        with Worker(tid, "coder"):      # the run starts: its first tool call
+        with Worker(tid, "coding"):      # the run starts: its first tool call
             get_pre_tool_call_block_message("read_file", {"path": str(ws / "tracked.py")})
         (ws / "tracked.py").unlink()
         self.accepted(tid, form_summary(files="tracked.py"))
