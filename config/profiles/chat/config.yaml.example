@@ -1,0 +1,198 @@
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/chat/config.yaml.example
+# =============================================================================
+# CHAT — Profile Config Overlay
+# =============================================================================
+# This file is merged ON TOP of the base config/config.yaml.example.
+# Only keys that DIFFER from the base are declared here.
+#
+# Role: the conversation front-end in chat channels. Its model is whatever you
+#       configure below (and in config/backends.yaml). Optionally, the
+#       claude_code_bridge block hands channels to a persistent Claude Code session.
+#
+# Copy to: $HERMES_HOME/profiles/chat/config.yaml
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Model — override
+# ---------------------------------------------------------------------------
+model:
+  # Any backend works: a local llama-swap tier, a hosted provider, or Claude.
+  # Use the same model id and base_url as this profile's entry in config/backends.yaml
+  # (scripts/check-backends.py fails when they disagree).
+  default: <MODEL_ID>
+  provider: <PROVIDER>                 # e.g. anthropic (Anthropic protocol) or openai
+  base_url: <BACKEND_BASE_URL>         # your backend; NO /v1 suffix for Anthropic protocol
+  context_length: 131072
+
+# ---------------------------------------------------------------------------
+# Fallback chain — override
+# ---------------------------------------------------------------------------
+# When the primary model errors or times out on a hard task, fall through to the
+# cloud provider declared in config/config.yaml.example under providers:.
+# Ordered: first entry in the list is tried first.
+fallback_providers:
+  - cloud-fallback
+
+# ---------------------------------------------------------------------------
+# Agent loop — override
+# ---------------------------------------------------------------------------
+agent:
+  # Bridged turns (claude_code_bridge.enabled: true) run in the Claude Code session instead.
+  reasoning_effort: medium
+  max_turns: 60
+  gateway_timeout: 1800            # Do not lower for long autonomous runs.
+  api_max_retries: 3
+  clarify_timeout: 600
+
+# ---------------------------------------------------------------------------
+# Approvals — override
+# ---------------------------------------------------------------------------
+approvals:
+  # KEEP manual until you trust the autonomous loop. Shell and file writes are
+  # irreversible without review.
+  mode: manual
+  cron_mode: deny
+  destructive_slash_confirm: true
+
+# Optionally add clearly safe, read-only commands to reduce approval friction.
+# Example: ["cat", "ls", "git diff", "git status"]
+command_allowlist: []
+
+# ---------------------------------------------------------------------------
+# Terminal — override
+# ---------------------------------------------------------------------------
+terminal:
+  # "local" runs on host. Switch to "docker" for sandboxed builds.
+  # See docs/architecture/topologies.md for topology options.
+  backend: local
+  timeout: 180
+
+# ---------------------------------------------------------------------------
+# Platform toolsets — override
+# ---------------------------------------------------------------------------
+# Same toolset as the coding example. Bridged chat turns (only when the bridge
+# is enabled) are answered by the Claude Code session, not by these tools.
+#
+# NOTE: there is intentionally NO "lsp" toolset here. hermes-agent v0.14.0 does
+# not recognize an "lsp" toolset and emits a non-fatal "Unknown toolsets: lsp"
+# warning if it is listed. Re-add it only once your hermes-agent build ships a
+# real lsp toolset.
+platform_toolsets:
+  cli:
+    - clarify
+    - code_execution
+    - file
+    - kanban
+    - memory
+    - session_search
+    - skills
+    - terminal
+    - todo
+    - web
+
+# ---------------------------------------------------------------------------
+# Kanban — override
+# ---------------------------------------------------------------------------
+kanban:
+  # After 2 consecutive failures the task is parked for human review.
+  # The external dispatcher applies a 30-minute cooldown after 3+ failures.
+  failure_limit: 2
+  auto_decompose: false   # the harness refuses to load otherwise (T43)
+
+# ---------------------------------------------------------------------------
+# Security — override
+# ---------------------------------------------------------------------------
+# Chat-facing profile: it ingests untrusted content (chat messages, open-web
+# pages during research), so keep the browser/web guardrails on.
+security:
+  allow_private_urls: false
+  redact_secrets: true
+  website_blocklist:
+    enabled: false
+    domains: []
+
+# ---------------------------------------------------------------------------
+# Delegation — override
+# ---------------------------------------------------------------------------
+# Investigations are fanned out here with delegate_task. Keep subagent_auto_approve
+# false until the loop is trusted.
+delegation:
+  max_concurrent_children: 3
+  max_spawn_depth: 1
+  subagent_auto_approve: false
+
+# ---------------------------------------------------------------------------
+# Plugins — override
+# ---------------------------------------------------------------------------
+# Security governance layer stays ON for every profile — do not disable any of these.
+plugins:
+  enabled:
+    - memory-guard
+    - audit-log
+    - policy-gate
+    # - claude-code-bridge   # optional: uncomment together with claude_code_bridge.enabled: true
+    # - skill-router
+    # - tooling-steering
+
+# ---------------------------------------------------------------------------
+# claude-code-bridge — OPTIONAL mode of this chat role (disabled by default).
+# Not required: with enabled: false, chat is answered by the configured backend above.
+# When enabled, chat messages go to ONE persistent Claude Code session per channel,
+# using the user's locally installed `claude` and its own login (Max/Pro). Bridged
+# messages do not call the model above. Design: docs/claude-code-bridge.md.
+# ---------------------------------------------------------------------------
+claude_code_bridge:
+  enabled: false                 # OPTIONAL — leave false to answer chat with the configured backend
+  claude_bin: ""                 # empty = first `claude` executable on PATH (never a shell function)
+  model: haiku                   # any `claude --model` value: haiku | sonnet | opus | full model id
+  effort: medium                 # thinking effort: low | medium | high | xhigh | max
+  transport: tmux                # tmux = interactive `claude` in a detached, attachable tmux session
+  session_prefix: claude-code-bridge-     # tmux session name = <prefix><channel-id>
+  home: ""                       # empty = $HERMES_HOME/claude-code-bridge (one folder per channel lives here)
+  idle_exit_minutes: 60          # close an idle session after this (~ prompt-cache lifetime); resumed by session id on the next message
+  permission_mode: dontAsk       # tools not listed below are refused, never prompted
+  allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
+  append_system_prompt: >-
+    You are answering in a chat channel. Reply in plain text, as one message,
+    in the user's language. Never mention file paths, tools or infrastructure.
+    Each message starts with [time · sender]. Messages can arrive late or out of order;
+    use the timestamps to judge what the latest request is.
+  max_reply_chars: 15000
+  allowed_users: []              # chat usernames allowed to reach the bridge; ["*"] = every sender; empty = nobody (fail-closed)
+  allowed_channels: []           # channel ids; ["*"] = every channel the bot is a member of; empty = no channel (fail-closed)
+  reply_in_thread: false         # true = always reply in a thread on the user's message; false = top-level unless the user wrote in a thread
+  wait_budget_minutes: 360       # how long a bridged reply may take before the user gets one failure notice
+  tmux_socket: claude-code-bridge         # tmux -L socket name for the bridge's private tmux server
+  poll_seconds: 2                # worker loop interval, in seconds
+  # A message matching one of these case-insensitive regexes is NOT bridged: Hermes answers it
+  # (investigations go to the Hermes profile, which fans out on the configured backend).
+  passthrough_patterns:
+    - '\binvestigat'
+    - '\binvestigar'
+    - '\binvestigaci[oó]n'
+    - '\bi want to research\b'
+    - '\bquiero investigar\b'
+    - '\bdeep research\b'
+  # Optional MCP servers for the bridge's Claude Code session (empty = none). Rendered per channel
+  # into <channel-dir>/.mcp.json (0600) and loaded with --strict-mcp-config. A value
+  # "keyfile:<service>/<name>" is read from keys_dir at session start; a missing key drops only that
+  # server (logged) and the session still starts. Example: read-only Composio Gmail (7 tools).
+  # keys_dir: /path/to/keys            # empty = $HERMES_HOME/keys
+  # mcp_servers:
+  #   composio_gmail:
+  #     type: http
+  #     url: https://backend.composio.dev/v3/mcp/<SERVER_ID>?user_id=<USER_ID>
+  #     headers:
+  #       x-api-key: keyfile:composio-gmail-mcp/api-key
+  # mcp_allowed_tools:
+  #   - mcp__composio_gmail__GMAIL_FETCH_EMAILS
+  #   - mcp__composio_gmail__GMAIL_FETCH_MESSAGE_BY_MESSAGE_ID
+  #   - mcp__composio_gmail__GMAIL_FETCH_MESSAGE_BY_THREAD_ID
+  #   - mcp__composio_gmail__GMAIL_LIST_THREADS
+  #   - mcp__composio_gmail__GMAIL_LIST_LABELS
+  #   - mcp__composio_gmail__GMAIL_GET_PROFILE
+  #   - mcp__composio_gmail__GMAIL_GET_ATTACHMENT
+
+# =============================================================================
+# REMINDER: keep this profile's SOUL.md backend-agnostic (see SOUL.md.example).
+# =============================================================================

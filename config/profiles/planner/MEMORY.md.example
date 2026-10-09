@@ -40,7 +40,7 @@
   delete one, and scripts stay closed to me.
 - No code, no shell, no file mutations, no database changes.
 - Output plans, notes, and well-formed tasks only.
-- If a task requires implementation, route it to the coder, not myself.
+- If a task requires implementation, route it to the coding profile, not myself.
 
 <!-- =========================================================================
   Keep under 2200 chars. Replace examples above with YOUR project's rules.

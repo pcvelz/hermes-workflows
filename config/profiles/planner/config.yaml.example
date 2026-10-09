@@ -52,7 +52,7 @@ approvals:
 # Kanban — override
 # ---------------------------------------------------------------------------
 # Planner is the natural owner of task decomposition. It breaks epics into
-# well-scoped subtasks the coder can pick up -- through kanban_create, which the
+# well-scoped subtasks the coding profile can pick up -- through kanban_create, which the
 # harness sees. Never through auto_decompose, which splits cards outside any
 # tool call; the harness refuses to load unless it is false (T43).
 kanban:

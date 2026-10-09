@@ -6,8 +6,8 @@
 # Only keys that DIFFER from the base are declared here.
 #
 # Role: End-to-end browser testing (Playwright) against work produced by the
-#       coder. Verifies acceptance criteria and reports pass/fail.
-#       Does NOT modify source — fixes go back to the coder profile.
+#       coding profile. Verifies acceptance criteria and reports pass/fail.
+#       Does NOT modify source — fixes go back to the coding profile.
 #
 # Copy to: $HERMES_HOME/profiles/qa-tester/config.yaml
 # =============================================================================
@@ -48,7 +48,7 @@ browser:
 # ---------------------------------------------------------------------------
 approvals:
   # QA runs read-only browser flows — auto-approve is safe.
-  # It MUST NOT modify source; code changes require human review on the coder.
+  # It MUST NOT modify source; code changes require human review on the coding profile.
   mode: auto
   cron_mode: deny
 
@@ -76,7 +76,7 @@ platform_toolsets:
 # ---------------------------------------------------------------------------
 kanban:
   # QA picks up tasks tagged for testing. On failure it re-opens the task
-  # and assigns it back to the coder with a repro report.
+  # and assigns it back to the coding profile with a repro report.
   default_assignee: ""
   auto_decompose: false   # the harness refuses to load otherwise (T43)
 

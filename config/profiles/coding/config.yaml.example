@@ -1,6 +1,6 @@
-# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/coder/config.yaml.example
+# Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/coding/config.yaml.example
 # =============================================================================
-# CODER — Profile Config Overlay
+# CODING — Profile Config Overlay
 # =============================================================================
 # This file is merged ON TOP of the base config/config.yaml.example.
 # Only keys that DIFFER from the base are declared here.
@@ -8,7 +8,7 @@
 # Role: Main implementation worker. Handles code generation, edits, and shell
 #       execution. Uses the configured backend with a cloud fallback chain.
 #
-# Copy to: $HERMES_HOME/profiles/coder/config.yaml
+# Copy to: $HERMES_HOME/profiles/coding/config.yaml
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ agent:
 # Approvals — override
 # ---------------------------------------------------------------------------
 approvals:
-  # KEEP manual until you trust the autonomous loop. The coder writes/edits/
+  # KEEP manual until you trust the autonomous loop. The coding profile writes/edits/
   # deletes files and executes shell — these are irreversible without review.
   mode: manual
   cron_mode: deny
@@ -83,7 +83,7 @@ terminal:
 # ---------------------------------------------------------------------------
 # Platform toolsets — override
 # ---------------------------------------------------------------------------
-# Coder gets the implementation-heavy toolset:
+# The coding profile gets the implementation-heavy toolset:
 # code_execution + file + terminal for writing and running code.
 # No telegram — orchestrator owns all human notifications.
 #
@@ -116,7 +116,7 @@ kanban:
 # ---------------------------------------------------------------------------
 # Security — override
 # ---------------------------------------------------------------------------
-# The coder ingests untrusted content (open-web pages during research, MCP
+# The coding profile ingests untrusted content (open-web pages during research, MCP
 # results) alongside trusted repo code, so keep the browser/web guardrails on.
 security:
   allow_private_urls: false
@@ -128,7 +128,7 @@ security:
 # ---------------------------------------------------------------------------
 # Delegation — override
 # ---------------------------------------------------------------------------
-# The coder may fan out sub-tasks (e.g. parallel file edits across a repo).
+# The coding profile may fan out sub-tasks (e.g. parallel file edits across a repo).
 # Keep subagent_auto_approve false until the loop is trusted.
 delegation:
   max_concurrent_children: 3
@@ -138,7 +138,7 @@ delegation:
 # ---------------------------------------------------------------------------
 # Plugins — override
 # ---------------------------------------------------------------------------
-# Security governance layer stays ON for every profile. The coder is the
+# Security governance layer stays ON for every profile. The coding profile is the
 # highest-risk profile (writes/edits/deletes files, runs shell) — do not
 # disable any of these.
 plugins:

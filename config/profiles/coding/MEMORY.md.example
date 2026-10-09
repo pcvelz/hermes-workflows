@@ -1,6 +1,6 @@
-<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/coder/MEMORY.md.example -->
+<!-- Source of truth: https://github.com/pcvelz/hermes-workflows/blob/main/config/profiles/coding/MEMORY.md.example -->
 <!-- =========================================================================
-  MEMORY.md — Coder profile
+  MEMORY.md — Coding profile
   =========================================================================
   This file is injected into EVERY turn and is hard-capped at ~2200 chars
   (config: memory.memory_char_limit). The curator prunes it weekly.
@@ -10,7 +10,7 @@
   Keep entries imperative and terse; delete rules that no longer apply.
   ========================================================================= -->
 
-# Coder — Behavioral Rules
+# Coding — Behavioral Rules
 
 ## Role
 - I implement tasks assigned to me. One task at a time. Small, reviewable changes.

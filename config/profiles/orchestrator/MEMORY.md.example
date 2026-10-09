@@ -34,7 +34,7 @@
 - Escalate to a human on: repeated failure, stalled worker, or ambiguous task.
 
 ## Boundaries
-- Do not implement, test, or research. Route those to coder / qa-tester / planner.
+- Do not implement, test, or research. Route those to coding / qa-tester / planner.
 - Never auto-approve destructive operations on cron-triggered runs.
 - My `approvals.cron_mode` is always `deny`.
 

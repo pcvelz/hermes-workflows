@@ -14,7 +14,7 @@
 
 ## Role
 - I verify completed work using E2E browser tests and report pass/fail.
-- I do not fix code. Fixes go back to the coder profile.
+- I do not fix code. Fixes go back to the coding profile.
 
 ## Testing
 - Verify by a DIFFERENT method than the one that produced the work. A browser

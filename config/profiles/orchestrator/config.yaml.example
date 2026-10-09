@@ -52,14 +52,14 @@ kanban:
   # unassigned dispatch work to the orchestrator gateway.
   orchestrator_profile: orchestrator
 
-  # Unassigned "ready" tasks are routed to the coder profile by default.
-  default_assignee: coder
+  # Unassigned "ready" tasks are routed to the coding profile by default.
+  default_assignee: coding
 
 # ---------------------------------------------------------------------------
 # Platform toolsets — override
 # ---------------------------------------------------------------------------
 # Orchestrator gets dispatch/notify/cron toolsets.
-# No code_execution, no lsp, no browser — those belong to coder and qa-tester.
+# No code_execution, no lsp, no browser — those belong to coding and qa-tester.
 platform_toolsets:
   cli:
     - clarify
