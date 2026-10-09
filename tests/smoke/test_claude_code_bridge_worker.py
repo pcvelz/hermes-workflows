@@ -492,7 +492,8 @@ class PassthroughTests(_Base):
 
     def test_investigation_text_passes_through_without_enqueue(self):
         for text in ("Investigate briefly: top cities", "quiero investigar el tema",
-                     "I want to research zebras", "Deep Research on X", "investigación de mercado"):
+                     "I want to research zebras", "Deep Research on X", "investigación de mercado",
+                     "Onderzoek de beste router", "kun je dit uitzoeken?", "zoek uit wat werkt"):
             with self.subTest(text=text):
                 self.assertIsNone(self._decide(text))
         self.assertEqual(spool.pending(self.cfg, CID), [])

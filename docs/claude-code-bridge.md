@@ -180,7 +180,7 @@ as a string such as `'["a", "b"]'`.
 | `home` | `""` | Bridge state root. Empty = `<HERMES_HOME>/claude-code-bridge`; one folder per channel below it. |
 | `idle_exit_minutes` | `60` | Stop an idle session after this many minutes. |
 | `permission_mode` | `dontAsk` | `claude --permission-mode`. Tools not allowed are refused, never prompted. |
-| `allowed_tools` | `[Read, Glob, Grep, WebSearch, WebFetch]` | `claude --allowedTools`. |
+| `allowed_tools` | `[Read, Glob, Grep, WebSearch, WebFetch]` | `claude --allowedTools`. May include narrow Bash patterns for a local capability, e.g. `Bash(/path/to/local-tool add:*)` (prefix match on one subcommand of one absolute path). Never add a broad `Bash(*)`. |
 | `append_system_prompt` | chat contract text (see below) | `claude --append-system-prompt`. |
 | `max_reply_chars` | `15000` | Replies longer than this are cut with an ellipsis. |
 | `allowed_users` | `[]` | Chat usernames that may reach the bridge. `"*"` = every sender; empty = nobody. |
@@ -189,10 +189,11 @@ as a string such as `'["a", "b"]'`.
 | `wait_budget_minutes` | `360` | How long to wait for a reply before the single failure reply. |
 | `tmux_socket` | `claude-code-bridge` | tmux server socket name (`tmux -L`). |
 | `poll_seconds` | `2` | Worker loop interval. |
-| `passthrough_patterns` | six regexes (see "Investigations") | Case-insensitive; a match is not bridged. |
+| `passthrough_patterns` | investigation regexes in EN/ES/NL (see "Investigations") | Case-insensitive; a match is not bridged. |
 | `keys_dir` | `""` | Folder that `keyfile:` references resolve against. Empty = `<HERMES_HOME>/keys`. |
-| `mcp_servers` | `{}` | Claude Code MCP servers for the session, as a mapping name → server spec (`type: http`, `url`, `headers`). A value `keyfile:<service>/<name>` is replaced at session start by the file `<keys_dir>/<service>/<name>` (whitespace stripped). Empty = no MCP flags. |
+| `mcp_servers` | `{}` | Claude Code MCP servers for the session, as a mapping name → server spec (`type: http`, `url`, `headers`). A value `keyfile:<service>/<name>` is replaced at session start by the file `<keys_dir>/<service>/<name>` (whitespace stripped). Empty = an empty server map; the session still runs `--strict-mcp-config`. |
 | `mcp_allowed_tools` | `[]` | Tool names appended to `--allowedTools` when an MCP file was rendered, e.g. `mcp__composio_gmail__GMAIL_FETCH_EMAILS`. |
+| `channels` | `{}` | Per-channel overrides keyed by channel id. `allowed_tools` is added to the global list; `append_system_prompt` is appended after a blank line, for that channel only. Only `Edit(path)` rules govern file edits; `Write(path)` rules are ignored. |
 
 ### MCP servers (how they are wired)
 
@@ -200,6 +201,9 @@ At each session start the bridge renders `<channel-dir>/.mcp.json` (mode 0600) f
 `mcp_servers`, resolving `keyfile:` values. The session is launched with
 `--mcp-config <that file> --strict-mcp-config`, so only these servers load: no project
 `.mcp.json` and no user MCP config. `mcp_allowed_tools` is added to `--allowedTools`.
+When no server survives (none configured, or a key is missing), the file is still written with an
+empty `mcpServers` map and the flags are still passed, so account, user and plugin MCP servers
+(for example a browser connector) never load into a chat session.
 The rendered file also gets a `Read(./.mcp.json)` deny rule in the channel's
 `.claude/settings.json`, so the model cannot read the key back into a reply.
 
@@ -216,9 +220,11 @@ is retried three times, then marked failed. The session keeps running and the mo
 the server failed. No daemon is started by the bridge.
 
 The default `append_system_prompt` is: "You are answering in a chat channel. Reply in plain
-text, as one message, in the user's language. Never mention file paths, tools or
-infrastructure. Each message starts with [time · sender]. Messages can arrive late or out of
-order; use the timestamps to judge what the latest request is."
+text, as one message, in the user's language. Each message starts with [time · sender];
+messages can arrive late or out of order, so use the timestamps to judge what the latest
+request is. Never mention file paths, tools, software, settings, permissions or
+infrastructure. If you cannot do something, say in plain words what you can't do here and
+offer what you can do instead. Never ask the user to change settings or do technical work."
 
 A worked example with every key is in
 [`config/profiles/chat/config.yaml.example`](../config/profiles/chat/config.yaml.example).

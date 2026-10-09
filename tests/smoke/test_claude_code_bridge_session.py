@@ -106,14 +106,17 @@ class LaunchArgvTests(SessionTestCase):
         self.assertEqual(argv[9:11], ["--allowedTools", "Read,Glob,Grep,WebSearch,WebFetch"])
         self.assertEqual(argv[11], "--append-system-prompt")
         self.assertEqual(argv[12], cfg["append_system_prompt"])
-        self.assertEqual(argv[13:], ["--session-id", state["session_id"]])
+        self.assertEqual(argv[13], "--mcp-config")
+        self.assertEqual(argv[15], "--strict-mcp-config")
+        self.assertEqual(argv[16:], ["--session-id", state["session_id"]])
         self.assertNotIn("--resume", argv)
 
     def test_resume_uses_resume_flag(self):
         cfg = self.make_cfg()
         state = {"session_id": "abc-session", "started_once": True}
         argv = session.launch_argv(cfg, CID, state)
-        self.assertEqual(argv[13:], ["--resume", "abc-session"])
+        self.assertEqual(argv[15], "--strict-mcp-config")
+        self.assertEqual(argv[16:], ["--resume", "abc-session"])
         self.assertNotIn("--session-id", argv)
 
     def test_missing_session_id_generates_uuid(self):
@@ -161,7 +164,8 @@ class PrepareDirTests(SessionTestCase):
         self.assertEqual(entry["type"], "command")
         expected = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook))}"
         self.assertEqual(entry["command"], expected)
-        self.assertEqual(set(settings), {"hooks"})
+        self.assertEqual(set(settings), {"hooks", "permissions"})
+        self.assertEqual(settings["permissions"], {"deny": ["Read(./.mcp.json)"]})
 
 
 class PaneParsingTests(unittest.TestCase):
@@ -325,6 +329,90 @@ class LaunchFingerprintTests(unittest.TestCase):
         fp = session.fingerprint(self.cfg, CID)
         (self.tmp / "keys" / "svc" / "api-key").write_text("fp-test-key-rotated\n", encoding="utf-8")
         self.assertNotEqual(fp, session.fingerprint(self.cfg, CID))
+
+
+OTHER = "test-chan-2"
+OVERRIDE_TOOL = "Edit(./NOTES.md)"
+OVERRIDE_PROMPT = "Your notes live in NOTES.md; keep them current."
+
+
+def _flag(argv, flag):
+    return argv[argv.index(flag) + 1]
+
+
+class ChannelOverrideTests(SessionTestCase):
+    """channels.<cid> in claude_code_bridge: extra allowed_tools / append_system_prompt for that channel only."""
+
+    def _with_override(self, **override):
+        cfg = self.make_cfg()
+        cfg["channels"] = {CID: {"allowed_tools": [OVERRIDE_TOOL], "append_system_prompt": OVERRIDE_PROMPT,
+                                 **override}}
+        return cfg
+
+    def _argv(self, cfg, cid):
+        return session.launch_argv(cfg, cid, {"session_id": "11111111-2222-3333-4444-555555555555",
+                                              "started_once": False})
+
+    def test_no_channels_key_argv_unchanged(self):
+        base = self.make_cfg()
+        base.pop("channels", None)
+        argv = self._argv(base, CID)
+        self.assertEqual(_flag(argv, "--allowedTools"), "Read,Glob,Grep,WebSearch,WebFetch")
+        self.assertEqual(_flag(argv, "--append-system-prompt"), config.DEFAULTS["append_system_prompt"])
+        # An empty channels block is the same as no block.
+        empty = self.make_cfg(channels={})
+        self.assertEqual(self._argv(empty, CID), argv)
+        self.assertEqual(self._argv(empty, OTHER), self._argv(base, OTHER))
+
+    def test_override_channel_gets_extra_tools_and_prompt(self):
+        cfg = self._with_override()
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--allowedTools"),
+                         "Read,Glob,Grep,WebSearch,WebFetch," + OVERRIDE_TOOL)
+        self.assertEqual(_flag(argv, "--append-system-prompt"),
+                         config.DEFAULTS["append_system_prompt"] + "\n\n" + OVERRIDE_PROMPT)
+        # The global config is never mutated by the per-channel view.
+        self.assertEqual(cfg["allowed_tools"], config.DEFAULTS["allowed_tools"])
+        self.assertEqual(cfg["append_system_prompt"], config.DEFAULTS["append_system_prompt"])
+
+    def test_other_channel_unaffected(self):
+        cfg = self._with_override()
+        base = self.make_cfg()
+        base.pop("channels", None)
+        self.assertEqual(self._argv(cfg, OTHER), self._argv(base, OTHER))
+        self.assertNotIn(OVERRIDE_TOOL, _flag(self._argv(cfg, OTHER), "--allowedTools"))
+
+    def test_fingerprint_differs_only_for_overridden_channel(self):
+        cfg = self._with_override()
+        base = self.make_cfg()
+        base.pop("channels", None)
+        self.assertNotEqual(session.fingerprint(cfg, CID), session.fingerprint(base, CID))
+        self.assertEqual(session.fingerprint(cfg, OTHER), session.fingerprint(base, OTHER))
+
+    def test_empty_prompt_override_keeps_global_prompt(self):
+        cfg = self._with_override(append_system_prompt="")
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--append-system-prompt"), config.DEFAULTS["append_system_prompt"])
+        self.assertIn(OVERRIDE_TOOL, _flag(argv, "--allowedTools"))
+
+    def test_unknown_subkeys_and_malformed_override_ignored(self):
+        base = self.make_cfg()
+        base.pop("channels", None)
+        unknown = self.make_cfg(channels={CID: {"model": "opus", "bogus": [1]}})
+        self.assertEqual(self._argv(unknown, CID), self._argv(base, CID))
+        malformed = self.make_cfg(channels={CID: "not-a-mapping"})
+        self.assertEqual(self._argv(malformed, CID), self._argv(base, CID))
+
+
+class ForChannelTests(unittest.TestCase):
+    def test_returns_copy_and_leaves_global_untouched(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["channels"] = {CID: {"allowed_tools": [OVERRIDE_TOOL]}}
+        before = copy.deepcopy(cfg)
+        eff = config.for_channel(cfg, CID)
+        self.assertIn(OVERRIDE_TOOL, eff["allowed_tools"])
+        self.assertEqual(cfg, before)
+        self.assertIsNot(eff, cfg)
 
 
 if __name__ == "__main__":

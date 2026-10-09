@@ -173,6 +173,9 @@ claude_code_bridge:
     - '\bi want to research\b'
     - '\bquiero investigar\b'
     - '\bdeep research\b'
+    - '\bonderzoek(?:en)?\b'
+    - '\buitzoeken\b'
+    - '\bzoek uit\b'
   # Optional MCP servers for the bridge's Claude Code session (empty = none). Rendered per channel
   # into <channel-dir>/.mcp.json (0600) and loaded with --strict-mcp-config. A value
   # "keyfile:<service>/<name>" is read from keys_dir at session start; a missing key drops only that

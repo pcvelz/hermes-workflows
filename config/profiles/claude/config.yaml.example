@@ -165,9 +165,11 @@ claude_code_bridge:
   allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
   append_system_prompt: >-
     You are answering in a chat channel. Reply in plain text, as one message,
-    in the user's language. Never mention file paths, tools or infrastructure.
-    Each message starts with [time · sender]. Messages can arrive late or out of order;
-    use the timestamps to judge what the latest request is.
+    in the user's language. Each message starts with [time · sender]; messages can
+    arrive late or out of order, so use the timestamps to judge what the latest request is.
+    Never mention file paths, tools, software, settings, permissions or infrastructure.
+    If you cannot do something, say in plain words what you can't do here and offer what
+    you can do instead. Never ask the user to change settings or do technical work.
   max_reply_chars: 15000
   allowed_users: []              # chat usernames allowed to reach the bridge; ["*"] = every sender; empty = nobody (fail-closed)
   allowed_channels: []           # channel ids; ["*"] = every channel the bot is a member of; empty = no channel (fail-closed)
@@ -184,6 +186,9 @@ claude_code_bridge:
     - '\bi want to research\b'
     - '\bquiero investigar\b'
     - '\bdeep research\b'
+    - '\bonderzoek(?:en)?\b'
+    - '\buitzoeken\b'
+    - '\bzoek uit\b'
   # Optional MCP servers for the bridge's Claude Code session (empty = none). Rendered per channel
   # into <channel-dir>/.mcp.json (0600) and loaded with --strict-mcp-config. A value
   # "keyfile:<service>/<name>" is read from keys_dir at session start; a missing key drops only that
@@ -203,6 +208,12 @@ claude_code_bridge:
   #   - mcp__composio_gmail__GMAIL_LIST_LABELS
   #   - mcp__composio_gmail__GMAIL_GET_PROFILE
   #   - mcp__composio_gmail__GMAIL_GET_ATTACHMENT
+  # Optional per-channel overrides (absent = every channel uses the globals above). Only the named
+  # channel's session gets the extra tools and the appended prompt; other channels stay read-only.
+  # channels:
+  #   <CHANNEL_ID>:
+  #     allowed_tools: ["Edit(./NOTES.md)"]          # ADDED to allowed_tools for this channel only
+  #     append_system_prompt: "..."                  # appended after a blank line, this channel only
 
 # =============================================================================
 # REMINDER: keep this profile's SOUL.md backend-agnostic (see SOUL.md.example).

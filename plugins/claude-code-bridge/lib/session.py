@@ -87,14 +87,15 @@ def prepare_dir(cfg: dict, cid: str) -> Path:
     (d / ".claude").mkdir(exist_ok=True)
     command = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook))}"
     settings = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": command}]}]}}
-    if mcp.render(cfg, d):
-        # The model must not be able to read the rendered file that carries the MCP key.
-        settings["permissions"] = {"deny": [f"Read(./{mcp.MCP_FILE})"]}
+    mcp.render_or_empty(cfg, d)  # always a .mcp.json, so the session always runs --strict-mcp-config
+    # The model must not be able to read the rendered file that carries the MCP key.
+    settings["permissions"] = {"deny": [f"Read(./{mcp.MCP_FILE})"]}
     _atomic_write(d / ".claude" / "settings.json", json.dumps(settings, indent=2) + "\n")
     return d
 
 
 def _argv(cfg: dict, cid: str, sid: str, has_mcp: bool, resume: bool) -> list[str]:
+    cfg = config.for_channel(cfg, cid)  # per-channel allowed_tools / append_system_prompt
     argv = [
         config.claude_bin(cfg) or "claude",
         "--model", cfg["model"],
@@ -104,9 +105,9 @@ def _argv(cfg: dict, cid: str, sid: str, has_mcp: bool, resume: bool) -> list[st
         "--allowedTools", ",".join(mcp.allowed_tools_for(cfg, has_mcp)),
         "--append-system-prompt", cfg["append_system_prompt"],
     ]
-    if has_mcp:
-        # Strict: only the servers in this file, never a project .mcp.json or user config.
-        argv += ["--mcp-config", str(spool.channel_dir(cfg, cid) / mcp.MCP_FILE), "--strict-mcp-config"]
+    # Always strict: only the servers in this file (possibly none), never a project .mcp.json,
+    # a user/account MCP server or a plugin's. Without these flags a connector would load.
+    argv += ["--mcp-config", str(spool.channel_dir(cfg, cid) / mcp.MCP_FILE), "--strict-mcp-config"]
     if resume:
         argv += ["--resume", sid]
     else:
@@ -116,7 +117,7 @@ def _argv(cfg: dict, cid: str, sid: str, has_mcp: bool, resume: bool) -> list[st
 
 def launch_argv(cfg: dict, cid: str, state: dict) -> list[str]:
     sid = state.get("session_id") or str(uuid.uuid4())
-    has_mcp = (spool.channel_dir(cfg, cid) / mcp.MCP_FILE).is_file()
+    has_mcp = mcp.has_servers(spool.channel_dir(cfg, cid))
     return _argv(cfg, cid, sid, has_mcp, bool(state.get("started_once")))
 
 

@@ -124,12 +124,15 @@ class RenderTests(_Base):
 
 
 class ArgvTests(_Base):
-    def test_no_mcp_config_means_no_mcp_flags(self):
+    def test_no_mcp_config_still_runs_strict_with_an_empty_server_map(self):
+        # No servers: the session still gets --strict-mcp-config, so account/user/plugin MCP never loads.
         self.cfg["mcp_servers"] = {}
         session.prepare_dir(self.cfg, CID)
         argv = session.launch_argv(self.cfg, CID, self.state())
-        self.assertNotIn("--mcp-config", argv)
-        self.assertNotIn("--strict-mcp-config", argv)
+        self.assertEqual(argv[argv.index("--mcp-config") + 1], str(self.chan / ".mcp.json"))
+        self.assertIn("--strict-mcp-config", argv)
+        doc = json.loads((self.chan / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc, {"mcpServers": {}})
         allowed = argv[argv.index("--allowedTools") + 1]
         self.assertEqual(allowed, ",".join(config.DEFAULTS["allowed_tools"]))
 
@@ -148,8 +151,8 @@ class ArgvTests(_Base):
         with self.assertLogs("claude_code_bridge", level="WARNING"):
             session.prepare_dir(self.cfg, CID)
             argv = session.launch_argv(self.cfg, CID, self.state())
-        self.assertNotIn("--mcp-config", argv)
-        self.assertNotIn("--strict-mcp-config", argv)
+        self.assertEqual(argv[argv.index("--mcp-config") + 1], str(self.chan / ".mcp.json"))
+        self.assertIn("--strict-mcp-config", argv)
         self.assertNotIn("mcp__composio_gmail__GMAIL_FETCH_EMAILS", argv[argv.index("--allowedTools") + 1])
         self.assertEqual(argv[argv.index("--session-id") + 1], self.state()["session_id"])
 
@@ -158,11 +161,11 @@ class ArgvTests(_Base):
         settings = json.loads((self.chan / ".claude" / "settings.json").read_text(encoding="utf-8"))
         self.assertEqual(settings["permissions"], {"deny": ["Read(./.mcp.json)"]})
 
-    def test_prepare_dir_without_mcp_has_no_permissions_block(self):
+    def test_prepare_dir_without_mcp_still_denies_model_read_of_mcp_file(self):
         self.cfg["mcp_servers"] = {}
         session.prepare_dir(self.cfg, CID)
         settings = json.loads((self.chan / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(settings), {"hooks"})
+        self.assertEqual(settings["permissions"], {"deny": ["Read(./.mcp.json)"]})
 
 
 if __name__ == "__main__":

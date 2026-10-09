@@ -16,6 +16,23 @@ whitespace ignored) starts a fresh Claude Code conversation for that channel. No
 Investigations: a message matching `passthrough_patterns` is not bridged. Hermes answers it in
 a thread under that message, in the same channel, with its native delegate_task fan-out.
 
+## Per-channel overrides
+
+By default every channel's session gets the global `allowed_tools` (read-only) and
+`append_system_prompt`. A channel can be given more under `claude_code_bridge.channels.<channel-id>`:
+
+```yaml
+channels:
+  <CHANNEL_ID>:
+    allowed_tools: ["Edit(./NOTES.md)"]     # added to the global list, this channel only
+    append_system_prompt: "..."             # appended after a blank line, this channel only
+```
+
+Unknown sub-keys are ignored, and a missing or malformed `channels` block changes nothing. The
+override is applied once, in the session's argv (`config.for_channel`), so `--allowedTools` and
+`--append-system-prompt` reflect it. The launch fingerprint includes that argv, so changing one
+channel's override restarts only that channel's idle session, through the usual `--resume` path.
+
 ## Files
 
 | File | Role |

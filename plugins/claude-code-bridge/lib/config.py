@@ -26,9 +26,11 @@ DEFAULTS: dict[str, Any] = {
     "allowed_tools": ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
     "append_system_prompt": (
         "You are answering in a chat channel. Reply in plain text, as one message, "
-        "in the user's language. Never mention file paths, tools or infrastructure. "
-        "Each message starts with [time · sender]. Messages can arrive late or out of order; "
-        "use the timestamps to judge what the latest request is."
+        "in the user's language. Each message starts with [time · sender]; messages can "
+        "arrive late or out of order, so use the timestamps to judge what the latest request is. "
+        "Never mention file paths, tools, software, settings, permissions or infrastructure. "
+        "If you cannot do something, say in plain words what you can't do here and offer what "
+        "you can do instead. Never ask the user to change settings or do technical work."
     ),
     "max_reply_chars": 15000,
     "allowed_users": [],
@@ -45,6 +47,9 @@ DEFAULTS: dict[str, Any] = {
         r"\bi want to research\b",
         r"\bquiero investigar\b",
         r"\bdeep research\b",
+        r"\bonderzoek(?:en)?\b",
+        r"\buitzoeken\b",
+        r"\bzoek uit\b",
     ],
     # Claude Code MCP servers for the bridge session (empty = none, no flags).
     # A value "keyfile:<service>/<name>" is read from keys_dir at session start; a server
@@ -52,6 +57,9 @@ DEFAULTS: dict[str, Any] = {
     "keys_dir": "",
     "mcp_servers": {},
     "mcp_allowed_tools": [],
+    # Per-channel overrides: {<channel-id>: {allowed_tools: [...], append_system_prompt: "..."}}.
+    # allowed_tools is ADDED to the global list; append_system_prompt is appended after a blank line.
+    "channels": {},
 }
 
 _cache: dict[str, Any] = {"key": None, "value": None}
@@ -109,6 +117,27 @@ def load() -> dict[str, Any]:
         _cache["key"] = key
         _cache["value"] = cfg
     return copy.deepcopy(_cache["value"])
+
+
+def for_channel(cfg: dict[str, Any], cid: str) -> dict[str, Any]:
+    """Effective config for one channel: a copy of ``cfg`` with that channel's override applied.
+
+    Unknown sub-keys are ignored; a missing or malformed ``channels`` block returns a plain copy.
+    """
+    eff = copy.deepcopy(cfg)
+    channels = cfg.get("channels")
+    override = channels.get(cid) if isinstance(channels, dict) else None
+    if not isinstance(override, dict):
+        return eff
+    extra = override.get("allowed_tools")
+    if isinstance(extra, str):
+        extra = _as_list(extra)
+    if isinstance(extra, list):
+        eff["allowed_tools"] = list(eff.get("allowed_tools") or []) + [str(t) for t in extra]
+    prompt = override.get("append_system_prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        eff["append_system_prompt"] = f"{eff.get('append_system_prompt') or ''}\n\n{prompt}".lstrip("\n")
+    return eff
 
 
 def keys_dir(cfg: dict[str, Any]) -> Path:

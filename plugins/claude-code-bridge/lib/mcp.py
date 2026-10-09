@@ -85,6 +85,15 @@ def dump(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2) + "\n"
 
 
+def _write(path: Path, doc: dict[str, Any]) -> None:
+    tmp = path.with_name(MCP_FILE + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(dump(doc))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
 def render(cfg: dict[str, Any], channel_dir: Path) -> bool:
     """Write ``channel_dir/.mcp.json`` for the configured servers. True if a file was written.
 
@@ -95,17 +104,32 @@ def render(cfg: dict[str, Any], channel_dir: Path) -> bool:
     if doc is None:
         path.unlink(missing_ok=True)
         return False
-    tmp = path.with_name(MCP_FILE + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(dump(doc))
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    _write(path, doc)
     return True
 
 
+def render_or_empty(cfg: dict[str, Any], channel_dir: Path) -> bool:
+    """``render()``, but always leaves a ``.mcp.json`` behind. When no server survives it writes an
+    empty server map, so the session is still launched with ``--mcp-config <file> --strict-mcp-config``
+    and no account, user or plugin MCP server (e.g. a browser connector) can load. True if servers exist."""
+    if render(cfg, channel_dir):
+        return True
+    _write(channel_dir / MCP_FILE, {"mcpServers": {}})
+    return False
+
+
+def has_servers(channel_dir: Path) -> bool:
+    """True when the channel's ``.mcp.json`` declares at least one server."""
+    try:
+        doc = json.loads((channel_dir / MCP_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    servers = doc.get("mcpServers") if isinstance(doc, dict) else None
+    return bool(servers)
+
+
 def allowed_tools_for(cfg: dict[str, Any], has_mcp: bool) -> list[str]:
-    """``allowed_tools`` plus ``mcp_allowed_tools`` when the session has an MCP file."""
+    """``allowed_tools`` plus ``mcp_allowed_tools`` when the session has MCP servers."""
     tools = list(cfg["allowed_tools"])
     if has_mcp:
         tools += [str(t) for t in (cfg.get("mcp_allowed_tools") or [])]
@@ -113,5 +137,5 @@ def allowed_tools_for(cfg: dict[str, Any], has_mcp: bool) -> list[str]:
 
 
 def allowed_tools(cfg: dict[str, Any], channel_dir: Path) -> list[str]:
-    """``allowed_tools`` plus ``mcp_allowed_tools`` when an MCP file was rendered for the channel."""
-    return allowed_tools_for(cfg, (channel_dir / MCP_FILE).is_file())
+    """``allowed_tools`` plus ``mcp_allowed_tools`` when the channel's MCP file declares servers."""
+    return allowed_tools_for(cfg, has_servers(channel_dir))
