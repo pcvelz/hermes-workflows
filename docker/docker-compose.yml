@@ -101,7 +101,7 @@ services:
       HERMES_UID: ${HERMES_UID:-10000}
       HERMES_GID: ${HERMES_GID:-10000}
       HERMES_HOME: /opt/data
-      # Conceptual role profile (orchestrator | coder | planner | qa-tester).
+      # Conceptual role profile (orchestrator | coding | planner | qa-tester).
       # Map these to the Hermes profile names in your ~/.hermes/profiles/ directory.
       HERMES_PROFILE: ${HERMES_PROFILE:-orchestrator}
       # Read timeout in seconds. If your backend has cold-start latency (e.g. a

@@ -46,7 +46,7 @@
   3. Replace ALL __PLACEHOLDER__ tokens with absolute paths.
      launchd does NOT expand ~ or $HOME.
 
-       __HERMES_HOME__          — e.g. /Users/yourname/.hermes
+       __HERMES_HOME__          — e.g. <your-home>/.hermes
        __HERMES_WORKFLOWS_DIR__ — absolute path to this repo
        __BOARD__                — board slug (use "default" for the main board)
 

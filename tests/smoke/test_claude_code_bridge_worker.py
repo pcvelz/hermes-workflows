@@ -126,10 +126,15 @@ class DispatchHookTests(_Base):
         self.assertIsNone(self.plugin._on_dispatch(event=self._event(chat="other-channel")))
         self.start_thread.assert_not_called()
 
-    def test_returns_none_for_non_mattermost_platform(self):
+    def test_returns_none_without_platform(self):
         self._write_config()
-        self.assertIsNone(self.plugin._on_dispatch(event=self._event(platform="telegram")))
+        self.assertIsNone(self.plugin._on_dispatch(event=self._event(platform="")))
         self.start_thread.assert_not_called()
+
+    def test_bridges_any_platform_on_an_allowed_channel(self):
+        # The bridge is platform-agnostic since the multi-platform sender (lib/senders.py).
+        self._write_config()
+        self.assertEqual(self.plugin._on_dispatch(event=self._event(platform="telegram")), {"action": "skip"})
 
     def test_wildcard_user_admits_any_sender(self):
         self._write_config(users=("*",))
@@ -319,19 +324,53 @@ class ReplyPostRetryTests(_Base):
         self.assertEqual(self._outbox(), [])
         self.assertIsNone(self.state()["inflight"])
 
-    def test_gives_up_after_the_attempt_cap(self):
-        self.post.return_value = False
-        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
-        self.write_reply("never delivered")
+    # --- ---post--- split: each part is its own post, in order, on the same thread ---
 
-        for i in range(worker.MAX_REPLY_POST_ATTEMPTS):
-            worker.tick(self.cfg, self.post, now=NOW + i)
+    def test_split_marker_posts_each_part_in_order_on_the_same_thread(self):
+        self.post.return_value = True
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("one\n---post---\ntwo\n---post---\nthree")
 
-        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+
+        self.assertEqual([c.args for c in self.post.call_args_list],
+                         [(CID, "root-1", "one"), (CID, "root-1", "two"), (CID, "root-1", "three")])
         self.assertEqual(self._outbox(), [])
         self.assertIsNone(self.state()["inflight"])
-        worker.tick(self.cfg, self.post, now=NOW + 99)
-        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+
+    def test_split_drops_empty_parts(self):
+        self.post.return_value = True
+        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
+        self.write_reply("a\n---post---\n\n   \n---post---\nb\n---post---\n")
+
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+
+        self.assertEqual([c.args[2] for c in self.post.call_args_list], ["a", "b"])
+
+    def test_marker_must_be_a_whole_line(self):
+        self.post.return_value = True
+        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
+        self.write_reply("use ---post--- inline, not a split")
+
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+
+        self.post.assert_called_once_with(CID, None, "use ---post--- inline, not a split")
+
+    def test_partial_failure_resumes_at_the_failed_part_without_reposting(self):
+        self.post.side_effect = [True, False]
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("a\n---post---\nb\n---post---\nc")
+
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(len(self._outbox()), 1)
+        self.assertIsNotNone(self.state()["inflight"])
+
+        self.post.side_effect = [True, True]
+        worker.tick(self.cfg, self.post, now=NOW + 3)
+
+        self.assertEqual([c.args[2] for c in self.post.call_args_list], ["a", "b", "b", "c"])
+        self.assertEqual(self._outbox(), [])
+        self.assertIsNone(self.state()["inflight"])
 
 
 def _stamp(ts):
@@ -478,6 +517,197 @@ class WorkerTickTests(_Base):
         self.assertEqual(spool.pop(queued[0])["text"], "first")
 
 
+class NoticeTests(_Base):
+    """An outbox item with "notice": true is posted top-level with nothing in flight, state untouched."""
+
+    def _outbox(self):
+        return list((spool.channel_dir(self.cfg, CID) / "outbox").glob("*.json"))
+
+    def write_notice(self, text):
+        outbox = spool.channel_dir(self.cfg, CID) / "outbox"
+        path = outbox / f"{time.time_ns()}.json"
+        path.write_text(json.dumps({"text": text, "notice": True}), encoding="utf-8")
+
+    def test_notice_posted_top_level_with_nothing_in_flight(self):
+        self.write_notice("heads up")
+        before = self.state()
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.post.assert_called_once_with(CID, None, "heads up")
+        self.assertEqual(self._outbox(), [])
+        self.assertEqual(self.state(), before)
+
+    def test_notice_does_not_consume_the_in_flight_reply(self):
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_notice("heads up")
+        self.write_reply("the answer")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self.post.call_args_list[0].args, (CID, None, "heads up"))
+        self.assertEqual(self.post.call_args_list[1].args, (CID, "root-1", "the answer"))
+        self.assertIsNone(self.state()["inflight"])
+
+    def test_failed_notice_is_parked_at_the_cap_and_kept(self):
+        self.post.return_value = False
+        self.write_notice("retry me")
+        now = NOW
+        for _ in range(worker.MAX_REPLY_POST_ATTEMPTS):
+            worker.tick(self.cfg, self.post, now=now)
+            now += worker.POST_RETRY_MAX_S + 1
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+        self.assertEqual(len(self._outbox()), 1)
+        worker.tick(self.cfg, self.post, now=now + 99)
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+
+    def test_notice_alone_is_not_a_reply(self):
+        self.write_notice("heads up")
+        self.assertIsNone(spool.take_reply(self.cfg, CID))
+        self.assertEqual(len(self._outbox()), 1)
+
+
+class AdapterWaitTests(_Base):
+    """A missing adapter is a wait, not a failed post: the reply is held, no attempt is used."""
+
+    def _outbox(self):
+        return list((spool.channel_dir(self.cfg, CID) / "outbox").glob("*.json"))
+
+    def _held(self):
+        return json.loads(self._outbox()[0].read_text(encoding="utf-8"))
+
+    def test_adapter_missing_for_30s_then_present_delivers_without_using_attempts(self):
+        self.post.side_effect = [None] * 16 + [True]  # 2 s ticks: missing for t=0..30, live at t=32
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("the answer")
+        for i in range(16):
+            worker.tick(self.cfg, self.post, now=NOW + 2 * i)
+        self.assertEqual(len(self._outbox()), 1)
+        self.assertIn(self._held().get("post_attempts"), (None, 0))
+        self.assertIsNotNone(self.state()["inflight"])
+
+        worker.tick(self.cfg, self.post, now=NOW + 32)
+
+        self.assertEqual(self.post.call_count, 17)
+        self.assertEqual(self.post.call_args.args, (CID, "root-1", "the answer"))
+        self.assertEqual(self._outbox(), [])
+        self.assertIsNone(self.state()["inflight"])
+
+    def test_missing_adapter_never_parks_the_reply_inside_the_wait_budget(self):
+        self.post.return_value = None
+        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
+        self.write_reply("held")
+        for i in range(200):  # far more ticks than the attempt cap
+            worker.tick(self.cfg, self.post, now=NOW + i)
+        self.assertEqual(len(self._outbox()), 1)
+        self.assertNotIn("parked", self._held())
+        self.assertIsNotNone(self.state()["inflight"])
+
+    def test_missing_adapter_past_the_wait_budget_parks_the_reply_with_one_error(self):
+        self.cfg["wait_budget_minutes"] = 1
+        self.post.return_value = None
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("late")
+        worker.tick(self.cfg, self.post, now=NOW)
+        worker.tick(self.cfg, self.post, now=NOW + 30)
+        self.assertIsNotNone(self.state()["inflight"])
+        with self.assertLogs("claude_code_bridge", level="ERROR") as logs:
+            worker.tick(self.cfg, self.post, now=NOW + 61)
+        self.assertEqual(len(logs.records), 1)
+        self.assertIsNone(self.state()["inflight"])
+        held = self._held()
+        self.assertEqual((held["text"], held["parked"]), ("late", True))
+        worker.tick(self.cfg, self.post, now=NOW + 62)
+        self.assertEqual(self.post.call_count, 3)
+
+    def test_multipart_reply_resumes_at_the_part_whose_adapter_was_missing(self):
+        self.post.side_effect = [True, None, True, True]
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("a\n---post---\nb\n---post---\nc")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self._held()["text"], "b\n---post---\nc")
+        worker.tick(self.cfg, self.post, now=NOW + 2)
+        self.assertEqual([c.args[2] for c in self.post.call_args_list], ["a", "b", "b", "c"])
+        self.assertEqual(self._outbox(), [])
+        self.assertIsNone(self.state()["inflight"])
+
+
+class HttpBackoffTests(_Base):
+    """A real post failure backs off 2 s, 4 s, ... capped at 5 min, and is parked at the attempt cap."""
+
+    def _outbox(self):
+        return list((spool.channel_dir(self.cfg, CID) / "outbox").glob("*.json"))
+
+    def _held(self):
+        return json.loads(self._outbox()[0].read_text(encoding="utf-8"))
+
+    def test_failures_wait_before_each_retry_and_double(self):
+        self.post.return_value = False
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("the answer")
+        worker.tick(self.cfg, self.post, now=NOW)          # attempt 1 fails -> retry at +2 s
+        worker.tick(self.cfg, self.post, now=NOW + 1)      # too early: no post
+        self.assertEqual(self.post.call_count, 1)
+        worker.tick(self.cfg, self.post, now=NOW + 2)      # attempt 2 fails -> retry at +4 s
+        self.assertEqual(self.post.call_count, 2)
+        worker.tick(self.cfg, self.post, now=NOW + 5)
+        self.assertEqual(self.post.call_count, 2)
+        worker.tick(self.cfg, self.post, now=NOW + 6)
+        self.assertEqual(self.post.call_count, 3)
+
+    def test_failure_delays_double_and_cap_at_five_minutes(self):
+        self.post.return_value = False
+        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
+        self.write_reply("the answer")
+        now = NOW
+        delays = []
+        for _ in range(12):
+            worker.tick(self.cfg, self.post, now=now)
+            retry_at = self._held()["retry_at"]
+            delays.append(retry_at - now)
+            now = retry_at
+        self.assertEqual(delays, [2, 4, 8, 16, 32, 64, 128, 256, 300, 300, 300, 300])
+
+    def test_raising_post_backs_off_like_a_failed_post(self):
+        self.post.side_effect = RuntimeError("network down")
+        self.set_state(inflight={"post_id": "p1", "root_id": None, "text": "q"}, inflight_since=NOW)
+        self.write_reply("the answer")
+        worker.tick(self.cfg, self.post, now=NOW)
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self.post.call_count, 1)
+
+    def test_cap_keeps_reply_in_outbox_with_one_error_and_stops_posting(self):
+        self.post.return_value = False
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("kept for later")
+        now = NOW
+        with self.assertLogs("claude_code_bridge", level="ERROR") as logs:
+            for _ in range(worker.MAX_REPLY_POST_ATTEMPTS):
+                worker.tick(self.cfg, self.post, now=now)
+                now += worker.POST_RETRY_MAX_S + 1
+        self.assertEqual(len(logs.records), 1)
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+        self.assertIsNone(self.state()["inflight"])
+        held = self._held()
+        self.assertEqual((held["text"], held["parked"], held["thread_root"]), ("kept for later", True, "root-1"))
+        worker.tick(self.cfg, self.post, now=now + 10_000)
+        self.assertEqual(self.post.call_count, worker.MAX_REPLY_POST_ATTEMPTS)
+
+    def test_parked_reply_is_posted_on_its_thread_after_a_restart(self):
+        self.post.return_value = False
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "text": "q"}, inflight_since=NOW)
+        self.write_reply("kept for later")
+        now = NOW
+        for _ in range(worker.MAX_REPLY_POST_ATTEMPTS):
+            worker.tick(self.cfg, self.post, now=now)
+            now += worker.POST_RETRY_MAX_S + 1
+        self.assertTrue(self._held()["parked"])
+
+        self.post.return_value = True
+        self.post.reset_mock()
+        worker._unpark_all(self.cfg)
+        worker.tick(self.cfg, self.post, now=now + 1)
+
+        self.post.assert_called_once_with(CID, "root-1", "kept for later")
+        self.assertEqual(self._outbox(), [])
+
+
 class PassthroughTests(_Base):
     def setUp(self):
         super().setUp()
@@ -491,11 +721,17 @@ class PassthroughTests(_Base):
         return self.plugin._decide(event, self.cfg, ensure_worker=False)
 
     def test_investigation_text_passes_through_without_enqueue(self):
-        for text in ("Investigate briefly: top cities", "quiero investigar el tema",
-                     "I want to research zebras", "Deep Research on X", "investigación de mercado"):
+        for text in ("Investigate briefly: top cities", "Investigation of the top cities",
+                     "I want to research zebras", "Deep Research on X"):
             with self.subTest(text=text):
                 self.assertIsNone(self._decide(text))
         self.assertEqual(spool.pending(self.cfg, CID), [])
+
+    def test_other_languages_are_added_through_passthrough_patterns(self):
+        # The default is English. A deployment adds its own trigger words in its config.
+        self.assertIsNotNone(self._decide("please debrief-me on the router"), "default does not cover it")
+        self.cfg["passthrough_patterns"] = list(config.DEFAULTS["passthrough_patterns"]) + [r"(?i)\bdebrief-me\b"]
+        self.assertIsNone(self._decide("please debrief-me on the router"))
 
     def test_non_matching_text_is_bridged(self):
         self.assertEqual(self._decide("what time is dinner"), {"action": "skip"})
@@ -603,6 +839,334 @@ class LaunchFingerprintRestartTests(_Base):
         self._tick_with_message()
         self.session.stop.assert_called_once_with(self.cfg, CID)
         self.assertEqual(self.state()["launch_fingerprint"], real_session.fingerprint(self.cfg, CID))
+
+
+class RecordUserInputTests(_Base):
+    FILE = "CLAUDE.md"
+    START = "<!-- @user-input:start -->"
+    END = "<!-- @user-input:end -->"
+
+    def setUp(self):
+        super().setUp()
+        self.cfg["channels"] = {CID: {"record_user_input": {"file": self.FILE, "exclude_users": ["bot"]}}}
+        self.doc = spool.channel_dir(self.cfg, CID) / self.FILE
+        self.doc.write_text(
+            "# Channel\n\nIntro text.\n\n## Parent instructions\n"
+            f"{self.START}\n- (none yet)\n{self.END}\n\n## Tail\nkeep me\n",
+            encoding="utf-8",
+        )
+
+    def body(self):
+        text = self.doc.read_text(encoding="utf-8")
+        return text[text.index(self.START) + len(self.START):text.index(self.END)]
+
+    def stamp(self):
+        return _stamp(NOW)
+
+    def test_appends_line_and_replaces_none_yet(self):
+        self.assertTrue(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "Set the date  now", "ts": NOW}))
+        self.assertEqual(self.body(), f"\n- {self.stamp()} @user-input (parent): Set the date now\n")
+
+    def test_second_line_is_appended_and_surroundings_kept(self):
+        worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "uno", "ts": NOW})
+        worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "dos", "ts": NOW + 60})
+        lines = [ln for ln in self.body().splitlines() if ln.strip()]
+        self.assertEqual(lines, [f"- {self.stamp()} @user-input (parent): uno",
+                                 f"- {_stamp(NOW + 60)} @user-input (parent): dos"])
+        text = self.doc.read_text(encoding="utf-8")
+        self.assertIn("Intro text.", text)
+        self.assertTrue(text.endswith("## Tail\nkeep me\n"))
+
+    def test_excluded_user_is_not_recorded(self):
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "bot", "text": "x", "ts": NOW}))
+        self.assertIn("(none yet)", self.body())
+
+    def test_control_item_is_not_recorded(self):
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "/reset", "control": "reset", "ts": NOW}))
+        self.assertIn("(none yet)", self.body())
+
+
+    def test_no_rule_means_no_write(self):
+        self.cfg["channels"] = {}
+        before = self.doc.read_text(encoding="utf-8")
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), before)
+
+    def test_missing_markers_write_nothing(self):
+        before = "no markers here\n"
+        self.doc.write_text(before, encoding="utf-8")
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertEqual(self.doc.read_text(encoding="utf-8"), before)
+
+    def test_missing_file_writes_nothing(self):
+        self.doc.unlink()
+        self.assertFalse(worker.record_user_input(self.cfg, CID, {"user": "parent", "text": "x", "ts": NOW}))
+        self.assertFalse(self.doc.exists())
+
+    def test_same_item_recorded_once_when_requeued(self):
+        self.enqueue(text="once more", post_id="p9")
+        self.session.inject.return_value = False  # first tick: inject fails, item re-queued
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.inject.return_value = True
+        worker.tick(self.cfg, self.post, now=NOW + 5)
+        lines = [ln for ln in self.body().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].endswith("(alice): once more"))
+
+    def test_tick_records_then_injects(self):
+        self.enqueue(text="remind me")
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.inject.assert_called_once_with(self.cfg, CID, f"[{_stamp(NOW)} · alice] remind me")
+        self.assertIn(f"- {self.stamp()} @user-input (alice): remind me", self.body())
+
+
+class StartBackoffTests(_Base):
+    """A failed session start backs off per channel (2 s, 4 s, ... capped at 300 s) and resets on success."""
+
+    def setUp(self):
+        super().setUp()
+        self.session.exists.return_value = False
+        self.session.start.return_value = False
+        self.enqueue(text="queued")
+
+    def test_failed_start_schedules_retry_after_two_seconds(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        state = self.state()
+        self.assertEqual(state["start_failures"], 1)
+        self.assertEqual(state["start_retry_at"], NOW + 2)
+
+    def test_no_start_attempt_before_retry_time(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.reset_mock()
+        worker.tick(self.cfg, self.post, now=NOW + 1.9)
+        self.session.start.assert_not_called()
+
+    def test_retry_happens_when_timer_expires(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.reset_mock()
+        worker.tick(self.cfg, self.post, now=NOW + 2)
+        self.session.start.assert_called_once()
+
+    def test_delay_doubles_on_each_failure(self):
+        now = NOW
+        delays = []
+        for _ in range(4):
+            worker.tick(self.cfg, self.post, now=now)
+            retry_at = self.state()["start_retry_at"]
+            delays.append(retry_at - now)
+            now = retry_at
+        self.assertEqual(delays, [2, 4, 8, 16])
+
+    def test_delay_capped_at_five_minutes(self):
+        self.set_state(start_failures=20)
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.assertEqual(self.state()["start_retry_at"] - NOW, 300)
+
+    def test_success_resets_backoff(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.return_value = True
+        worker.tick(self.cfg, self.post, now=NOW + 2)
+        state = self.state()
+        self.assertEqual(state["start_failures"], 0)
+        self.assertIsNone(state["start_retry_at"])
+        self.session.inject.assert_called_once()
+
+
+class InflightRecoveryTests(_Base):
+    """An in-flight turn whose tmux session is gone (reboot, dead tmux server) is resumed once."""
+
+    def setUp(self):
+        super().setUp()
+        self.session.exists.return_value = False
+        self.inflight = {"post_id": "i1", "root_id": None, "user": "alice", "text": "Yes", "ts": NOW}
+        self.set_state(inflight=self.inflight, inflight_since=NOW - 600, session_id="sid-1", started_once=True)
+        self.expected_text = f"[{_stamp(NOW)} · alice] Yes"
+
+    def test_session_gone_relaunches_resuming_and_injects_once(self):
+        with self.assertLogs("claude_code_bridge", level="INFO") as logs:
+            worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.assert_called_once()
+        args = self.session.start.call_args[0]
+        self.assertEqual(args[2]["session_id"], "sid-1")
+        self.assertTrue(args[2]["started_once"])
+        self.session.inject.assert_called_once_with(self.cfg, CID, self.expected_text)
+        self.assertTrue(any(f"resumed in-flight turn on channel {CID} after session loss" in m
+                            for m in logs.output))
+        state = self.state()
+        self.assertEqual(state["inflight"], self.inflight)
+        self.assertEqual(state["inflight_redelivered_at"], NOW)
+        self.post.assert_not_called()
+
+    def test_second_tick_does_not_inject_again(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.reset_mock()
+        self.session.inject.reset_mock()
+        worker.tick(self.cfg, self.post, now=NOW + 2)
+        self.session.start.assert_not_called()
+        self.session.inject.assert_not_called()
+
+    def test_second_session_loss_after_redelivery_does_not_inject_again(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.reset_mock()
+        self.session.inject.reset_mock()
+        worker.tick(self.cfg, self.post, now=NOW + 60)
+        self.session.inject.assert_not_called()
+        self.assertIsNotNone(self.state()["inflight"])
+
+    def test_session_present_does_nothing(self):
+        self.session.exists.return_value = True
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.assert_not_called()
+        self.session.inject.assert_not_called()
+        self.assertIsNone(self.state().get("inflight_redelivered_at"))
+        self.assertEqual(self.state()["inflight"], self.inflight)
+
+    def test_no_inflight_and_session_gone_does_nothing(self):
+        self.set_state(inflight=None, inflight_since=None)
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.assert_not_called()
+        self.session.inject.assert_not_called()
+
+    def test_reply_in_outbox_is_posted_not_redelivered(self):
+        self.write_reply("the answer")
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.post.assert_called_once_with(CID, None, "the answer")
+        self.session.start.assert_not_called()
+        self.session.inject.assert_not_called()
+        self.assertIsNone(self.state()["inflight"])
+
+    def test_reply_flows_back_after_redelivery_and_clears_inflight(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.exists.return_value = True
+        self.write_reply("resumed answer")
+        worker.tick(self.cfg, self.post, now=NOW + 30)
+        self.post.assert_called_once_with(CID, None, "resumed answer")
+        state = self.state()
+        self.assertIsNone(state["inflight"])
+        self.assertIsNone(state["inflight_since"])
+
+    def test_backoff_is_respected(self):
+        self.set_state(start_retry_at=NOW + 10)
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.start.assert_not_called()
+        self.session.inject.assert_not_called()
+        worker.tick(self.cfg, self.post, now=NOW + 10)
+        self.session.start.assert_called_once()
+        self.session.inject.assert_called_once_with(self.cfg, CID, self.expected_text)
+
+    def test_failed_relaunch_backs_off_and_does_not_inject(self):
+        self.session.start.return_value = False
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.inject.assert_not_called()
+        state = self.state()
+        self.assertEqual(state["start_failures"], 1)
+        self.assertEqual(state["start_retry_at"], NOW + 2)
+        self.assertIsNone(state.get("inflight_redelivered_at"))
+        self.assertEqual(state["inflight"], self.inflight)
+
+    def test_failed_redelivery_inject_requeues_the_item_and_clears_marker(self):
+        self.session.inject.return_value = False
+        worker.tick(self.cfg, self.post, now=NOW)
+        state = self.state()
+        self.assertIsNone(state["inflight"])
+        self.assertIsNone(state["inflight_redelivered_at"])
+        queued = spool.pending(self.cfg, CID)
+        self.assertEqual(len(queued), 1)
+        self.assertEqual(spool.pop(queued[0])["text"], "Yes")
+
+    def test_new_normal_inject_resets_the_redelivery_marker(self):
+        worker.tick(self.cfg, self.post, now=NOW)
+        self.session.exists.return_value = True
+        self.write_reply("done")
+        worker.tick(self.cfg, self.post, now=NOW + 30)
+        self.enqueue(text="next", post_id="p9")
+        worker.tick(self.cfg, self.post, now=NOW + 40)
+        self.assertEqual(self.state()["inflight"]["text"], "next")
+        self.assertIsNone(self.state()["inflight_redelivered_at"])
+
+
+GIVE_UP = "Right now I cannot check it, please try again later."
+NUDGE = "Your reply was not sent: it gives up instead of delivering. Do not apologise or explain. Continue the task now and post the best result you can in the required format."
+GUARD = {
+    "patterns": [r"(?i)cannot check", r"(?i)cannot get it", r"(?i)in a while", r"(?i)later",
+                 r"(?i)try again later", r"(?i)can'?t right now"],
+    "nudge": NUDGE,
+    "max_nudges": 2,
+}
+
+
+class ReplyGuardWorkerTests(_Base):
+    """The worker has no reply guard: the Stop hook blocks a give-up reply before it reaches the outbox."""
+
+    def setUp(self):
+        super().setUp()
+        self.cfg["reply_guard"] = copy.deepcopy(GUARD)
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "user": "alice", "text": "q"},
+                       inflight_since=NOW)
+
+    def test_worker_posts_a_give_up_reply_unchanged_and_never_nudges(self):
+        self.write_reply(GIVE_UP)
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.post.assert_called_once_with(CID, "root-1", GIVE_UP)
+        self.session.inject.assert_not_called()
+        self.assertIsNone(self.state()["inflight"])
+
+    def test_worker_hold_budget_is_gone(self):
+        self.assertFalse(hasattr(worker, "REPLY_GUARD_HOLD_S"))
+        self.assertFalse(hasattr(worker, "_reply_guard_verdict"))
+
+    def test_injecting_a_new_turn_resets_the_hook_nudge_count(self):
+        self.set_state(inflight=None, inflight_since=None)
+        counter = spool.channel_dir(self.cfg, CID) / spool.REPLY_GUARD_STATE
+        counter.write_text('{"nudges": 2}', encoding="utf-8")
+        self.enqueue(text="next", post_id="p9")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.session.inject.assert_called_once()
+        self.assertEqual(json.loads(counter.read_text(encoding="utf-8"))["nudges"], 0)
+
+
+class SelfInitiatedTurnTests(_Base):
+    """A reply with no turn in flight (a background task woke the session) goes to the last thread the channel replied in."""
+
+    def test_successful_delivery_records_its_thread(self):
+        self.set_state(inflight={"post_id": "p1", "root_id": "root-1", "user": "alice", "text": "q"}, inflight_since=NOW)
+        self.write_reply("Listo.")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self.state()["last_reply_to"], {"root_id": "root-1"})
+
+    def test_self_initiated_reply_is_posted_to_the_last_thread_in_parts(self):
+        self.set_state(last_reply_to={"root_id": "root-9"})
+        self.write_reply("Final list:\n---post---\nHotel 1\n---post---\nHotel 2")
+        with self.assertLogs("claude_code_bridge", level="INFO") as logs:
+            worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.assertEqual(self.post.call_args_list, [
+            mock.call(CID, "root-9", "Final list:"),
+            mock.call(CID, "root-9", "Hotel 1"),
+            mock.call(CID, "root-9", "Hotel 2"),
+        ])
+        self.assertTrue(any("delivered self-initiated turn" in m for m in logs.output))
+        self.assertEqual(list((spool.channel_dir(self.cfg, CID) / "outbox").glob("*.json")), [])
+
+    def test_self_initiated_reply_to_a_top_level_channel_posts_top_level(self):
+        self.set_state(last_reply_to={"root_id": None})
+        self.write_reply("Hecho.")
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.post.assert_called_once_with(CID, None, "Hecho.")
+
+    def test_reply_with_no_turn_and_no_prior_delivery_is_still_dropped(self):
+        self.write_reply("Hello.")
+        with self.assertLogs("claude_code_bridge", level="INFO") as logs:
+            worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.post.assert_not_called()
+        self.assertTrue(any("dropped a reply" in m for m in logs.output))
+
+    def test_self_initiated_give_up_reply_is_posted_by_the_worker(self):
+        self.cfg["reply_guard"] = copy.deepcopy(GUARD)
+        self.set_state(last_reply_to={"root_id": "root-9"})
+        self.write_reply(GIVE_UP)
+        worker.tick(self.cfg, self.post, now=NOW + 1)
+        self.post.assert_called_once_with(CID, "root-9", GIVE_UP)
+        self.session.inject.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -195,7 +195,7 @@ docker compose exec hindsight pg_dump -U hindsight hindsight > hindsight-backup.
 
 - The native path uses **launchd + Python venv** (no containers). Profile
   names are user-defined; this compose file uses the conceptual roles
-  (`orchestrator`, `coder`, `planner`, `qa-tester`) via `HERMES_PROFILE`.
+  (`orchestrator`, `coding`, `planner`, `qa-tester`) via `HERMES_PROFILE`.
 - The native path applies patches via `reapply-patches.sh.example` over a live
   install; Docker here uses a pinned image — patches are baked in at image
   build time (if using the build: stanza).

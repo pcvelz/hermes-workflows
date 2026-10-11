@@ -22,7 +22,7 @@ key later.
 
 llama-swap and the inference engine behind it (llama.cpp or LM Studio) are independent
 pieces — run them separately, together, or swap either out. This scaffold targets the
-macOS-extended fork [`pcvelz/llama-swap-macos-extended`](https://github.com/pcvelz/llama-swap),
+macOS-extended fork of llama-swap,
 but any Anthropic-Messages-compatible proxy works.
 
 > **Verification status:** the local config is authored and statically validated. A live

@@ -195,12 +195,12 @@ PYEOF
   _sv_leak=""
   for _sv_f in services launchd/service.plist.tmpl.example scripts/install-services.py docs/services.md; do
     [ -e "$_sv_repo/$_sv_f" ] || continue
-    if grep -rIl -e '/Users/' -e 'com\.peter' "$_sv_repo/$_sv_f" >/dev/null 2>&1; then
+    if grep -rIl -e '/[U]sers/' -e 'com\.[p]eter' "$_sv_repo/$_sv_f" >/dev/null 2>&1; then
       _sv_leak="$_sv_leak $_sv_f"
     fi
   done
   if [ -z "$_sv_leak" ]; then
-    pass "new files are public-safe (no /Users path, no com.peter label)"
+    pass "new files are public-safe (no absolute home path, no personal label)"
   else
     fail "personal path or label in:$_sv_leak"
   fi

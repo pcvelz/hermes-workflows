@@ -265,7 +265,7 @@ compression:
 approvals:
   # manual = human approves risky tool calls before execution.
   # Options: manual | auto | <plan-defined>
-  # Profiles that only dispatch/notify can relax to auto; the coder should
+  # Profiles that only dispatch/notify can relax to auto; the coding profile should
   # stay on manual until the autonomous loop is trusted.
   mode: manual
   timeout: 60
@@ -416,7 +416,7 @@ curator:
 # ---------------------------------------------------------------------------
 skills:
   # Absolute paths to additional skill directories.
-  # Example: ~/Documents/Code/<your-project>/hermes/skills
+  # Example: ~/code/<your-project>/hermes/skills
   # See docs/skills-whitelist.md for whitelist strategy.
   external_dirs: []
 

@@ -6,7 +6,7 @@ hermes-workflows is a portable scaffold for running a Hermes-style autonomous so
 
 A human operator interacts via a **chat gateway** surface — for example Telegram, Mattermost, or any webhook-capable chat service. Messages reach the Hermes agent process, which reasons using a configurable **LLM backend**: any OpenAI- or Anthropic-compatible endpoint you supply. The shipped example stub targets a local llama-swap proxy (recommended default) at `http://127.0.0.1:<PORT>` (native Anthropic) — fill in your own key and swap in your preferred backend. See [docs/backend.md](../backend.md).
 
-The agent is structured around multiple **role profiles** — orchestrator, coder, planner, qa-tester — each running as a separate gateway process with its own config, state, and memory directory. A **host-side bridge process** handles privileged operations (build, deploy, git pull, log tail, service restart) that the agent itself should not invoke directly. A suite of **tool services** (web search, semantic memory, secrets) supports the agent's reasoning. The agent's ultimate goal is to operate on an **application code stack** — git repositories, build pipelines, and deployed services.
+The agent is structured around multiple **role profiles** — orchestrator, coding, planner, qa-tester — each running as a separate gateway process with its own config, state, and memory directory. A **host-side bridge process** handles privileged operations (build, deploy, git pull, log tail, service restart) that the agent itself should not invoke directly. A suite of **tool services** (web search, semantic memory, secrets) supports the agent's reasoning. The agent's ultimate goal is to operate on an **application code stack** — git repositories, build pipelines, and deployed services.
 
 ## Stack diagram
 
@@ -22,13 +22,13 @@ graph TD
 
         subgraph Profiles ["Role Profiles"]
             Orch[orchestrator]
-            Coder[coder]
+            Coding[coding]
             Planner[planner]
             QA[qa-tester]
         end
 
         Agent --> Orch
-        Agent --> Coder
+        Agent --> Coding
         Agent --> Planner
         Agent --> QA
     end

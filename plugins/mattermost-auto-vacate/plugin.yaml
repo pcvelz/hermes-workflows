@@ -1,0 +1,4 @@
+name: mattermost-auto-vacate
+version: 1.0.0
+description: "Leave a Mattermost channel automatically once the bot is the only remaining non-bot member for a grace period. Sweeps in a background thread; only the bot's own membership is removed. On by default."
+author: "Hermes Workflows"

@@ -16,10 +16,20 @@ if [[ -z "$BIN" ]]; then
     exit 1
 fi
 
+# Major version of the binary actually launched, so the UA matches it.
+MAJOR=$("$BIN" --version 2>/dev/null | sed -E 's/.* ([0-9]+)\..*/\1/')
+if [[ ! "$MAJOR" =~ ^[0-9]+$ ]]; then
+    echo "could not read Chrome major version from $BIN" >&2
+    exit 1
+fi
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${MAJOR}.0.0.0 Safari/537.36"
+
 exec "$BIN" \
-    --headless \
+    --headless=new \
     --no-sandbox \
     --disable-gpu \
+    --user-agent="$UA" \
+    --disable-blink-features=AutomationControlled \
     --remote-debugging-port="$PORT" \
     --remote-debugging-address=127.0.0.1 \
     about:blank

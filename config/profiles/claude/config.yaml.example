@@ -142,9 +142,22 @@ plugins:
     - memory-guard
     - audit-log
     - policy-gate
+    - mattermost-auto-vacate   # on by default: leaves a channel once the bot is its only human-free member
     # - claude-code-bridge   # opt-in: uncomment together with claude_code_bridge.enabled: true
     # - skill-router
     # - tooling-steering
+
+# ---------------------------------------------------------------------------
+# mattermost-auto-vacate — the bot leaves a Mattermost channel after a grace period once
+# no human is left in it (channels are never archived; only the bot's membership is removed).
+# The values below are the defaults; the block may be omitted. Plugin: plugins/mattermost-auto-vacate.
+# ---------------------------------------------------------------------------
+mattermost_auto_vacate:
+  enabled: true
+  interval_s: 300                # sweep period, seconds
+  grace_s: 600                   # alone this long across sweeps before leaving (protects channels being set up)
+  exclude: [town-square, off-topic]   # internal channel names never left
+  dry_run: false                 # true = log "would leave" only
 
 # ---------------------------------------------------------------------------
 # claude-code-bridge (opt-in; disabled by default) — forwards this profile's
@@ -163,11 +176,17 @@ claude_code_bridge:
   idle_exit_minutes: 60          # close an idle session after this (~ prompt-cache lifetime); resumed by session id on the next message
   permission_mode: dontAsk       # tools not listed below are refused, never prompted
   allowed_tools: [Read, Glob, Grep, WebSearch, WebFetch]
+  disallowed_tools: []           # deny rules for every channel (--disallowedTools); empty = none
+  # repo_permission_mode: ""     # repo channels (with a cwd) only: unset = plain launch under the user's own settings.
+  #                              # Set it to match how the deployment's user runs sessions: default, acceptEdits, plan, dontAsk, bypassPermissions.
+  #                              # Spool channels ignore it and keep permission_mode above.
   append_system_prompt: >-
     You are answering in a chat channel. Reply in plain text, as one message,
-    in the user's language. Never mention file paths, tools or infrastructure.
-    Each message starts with [time · sender]. Messages can arrive late or out of order;
-    use the timestamps to judge what the latest request is.
+    in the user's language. Each message starts with [time · sender]; messages can
+    arrive late or out of order, so use the timestamps to judge what the latest request is.
+    Never mention file paths, tools, software, settings, permissions or infrastructure.
+    If you cannot do something, say in plain words what you can't do here and offer what
+    you can do instead. Never ask the user to change settings or do technical work.
   max_reply_chars: 15000
   allowed_users: []              # chat usernames allowed to reach the bridge; ["*"] = every sender; empty = nobody (fail-closed)
   allowed_channels: []           # channel ids; ["*"] = every channel the bot is a member of; empty = no channel (fail-closed)
@@ -175,14 +194,42 @@ claude_code_bridge:
   wait_budget_minutes: 360       # how long a bridged reply may take before the user gets one failure notice
   tmux_socket: claude-code-bridge         # tmux -L socket name for the bridge's private tmux server
   poll_seconds: 2                # worker loop interval, in seconds
+  # Blocked prompts (default off: no detection at all). A dialog in the session's pane that nobody can answer
+  # (e.g. a repo hook's confirmation) waits forever in an unattended session. Design: docs/claude-code-bridge.md.
+  # Turn on `accept` (together with repo_permission_mode: bypassPermissions) only for projects that run in an
+  # isolated container, or whose settings.json is scoped tightly enough that every allowed action is safe:
+  # that is what lets them work autonomously while attached to a chat channel.
+  # blocked_prompt:
+  #   mode: off                  # off | notify (post the dialog to operator_channel) | decline (notify, then Escape
+  #                              # after blocked_timeout_s and a note to the session) | accept (Enter on the first option
+  #                              # once settled, max 3 presses, then notify; AskUserQuestion, rewind, /model and exit
+  #                              # dialogs are only notified). A channel can override it under channels.<id>.blocked_prompt.
+  # blocked_settle_s: 60         # the same dialog must stay on screen this long before it counts as blocked
+  # blocked_timeout_s: 600       # decline mode: seconds from first sight of the dialog to Escape
+  # operator_channel: ""         # Mattermost channel id for dialog notices; empty = WARNING log only. Never the bridged channel.
+  # deny_ask_user_question: false  # true = AskUserQuestion is refused with a note to answer in the chat reply instead
+  # Chat via hooks (default off). On: the session gets no chat contract in its system prompt; the chat is reached
+  # only through hooks (the Stop hook, the send script chat_send.py, the AskUserQuestion denial, the message prefix).
+  # chat_hooks_file: the JSON with the texts (template: config/chat-hooks.json.example; relative = under hermes home).
+  # A missing or invalid file turns it off for that launch (logged). Per-channel: channels.<id>.chat_hooks / chat_hooks_file.
+  # chat_hooks: false
+  # chat_hooks_file: ""
+  # Write guards (default off, see "Write guards" in docs/claude-code-bridge.md).
+  # repo_scope_guard: false        # true = writes outside the session's repo (and its companions) under repo_scope_root are denied
+  # repo_scope_root: ""            # e.g. a code folder that holds several repos; empty = the guard fails open
+  # repo_scope_companions: []      # extra directories a session may write too; a channel's list is added to this one
+  # public_first_guard: false      # true = an edit to a private copy of a public file is denied
+  # public_first: {private_root: "", public_root: ""}
+  # Channels whose NAME starts with one of these prefixes are never bridged: Hermes answers every
+  # message in them (e.g. the per-investigation channels research-dispatch opens, named "inv-…").
+  # A channel whose name cannot be resolved is also left to Hermes.
+  passthrough_channel_prefixes: []
   # A message matching one of these case-insensitive regexes is NOT bridged: Hermes answers it
   # (investigations go to the Hermes profile, which fans out on the local model).
+  # The default list is English. Add one regex per trigger word of your own language here.
   passthrough_patterns:
     - '\binvestigat'
-    - '\binvestigar'
-    - '\binvestigaci[oó]n'
     - '\bi want to research\b'
-    - '\bquiero investigar\b'
     - '\bdeep research\b'
   # Optional MCP servers for the bridge's Claude Code session (empty = none). Rendered per channel
   # into <channel-dir>/.mcp.json (0600) and loaded with --strict-mcp-config. A value
@@ -203,6 +250,19 @@ claude_code_bridge:
   #   - mcp__composio_gmail__GMAIL_LIST_LABELS
   #   - mcp__composio_gmail__GMAIL_GET_PROFILE
   #   - mcp__composio_gmail__GMAIL_GET_ATTACHMENT
+  # Optional per-channel overrides (absent = every channel uses the globals above). Only the named
+  # channel's session gets the extra tools and the appended prompt; other channels stay read-only.
+  # channels:
+  #   <CHANNEL_ID>:
+  #     allowed_tools: ["Edit(./NOTES.md)"]          # ADDED to allowed_tools for this channel only
+  #     disallowed_tools: ["Read(//abs/path/**)"]    # ADDED to disallowed_tools (--disallowedTools, deny wins), this channel only
+  #     append_system_prompt: "..."                  # appended after a blank line, this channel only
+  #     cwd: "/abs/path/or/~/path"                   # session starts here instead of the channel dir (must exist; quote ids).
+  #                                                  # With a cwd the bridge session is a normal Claude Code session in that folder:
+  #                                                  # the folder's own settings and permission mode apply; allowed_tools/permission_mode/disallowed_tools are not applied there.
+  #     # disallowed_tools: [...]                    # leave unset when cwd is an existing Claude Code repo: the session inherits that repo's rights,
+  #                                                  # and its tool rules live in <cwd>/.claude/settings.local.json; configure them there, not here
+  #     record_user_input: {file: CLAUDE.md, exclude_users: []}  # append each injected user message to the @user-input block of <channel dir>/CLAUDE.md
 
 # =============================================================================
 # REMINDER: keep this profile's SOUL.md backend-agnostic (see SOUL.md.example).

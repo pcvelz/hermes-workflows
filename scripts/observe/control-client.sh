@@ -29,7 +29,7 @@
 #
 # Override via environment variables (all optional):
 #   CONTROL_JSON   Path to the Desktop control file.
-#                  Default: $HOME/.hermes-desktop/control.json
+#                  Default: $HOME/.hermes-desktop/control.json (the desktop app's control file)
 #   CONTROL_HOST   Host the control server is bound to.
 #                  Default: 127.0.0.1 (Desktop binds loopback only)
 #   CONTROL_TAIL   How many trailing transcript lines to show.

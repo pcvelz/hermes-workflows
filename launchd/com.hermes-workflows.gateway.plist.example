@@ -22,12 +22,12 @@
 
   2. Replace EVERY __PLACEHOLDER__ with an absolute path.
      IMPORTANT: launchd does NOT expand ~ or $HOME in plist strings.
-     Use fully-expanded paths, e.g. /Users/yourname/.hermes (not ~/.hermes).
+     Use fully-expanded paths, e.g. <your-home>/.hermes (not ~/.hermes).
 
      Placeholders in this file:
        __HERMES_HOME__  — absolute path to the Hermes runtime directory
-                          (e.g. /Users/yourname/.hermes)
-       __PROFILE__      — gateway profile name: orchestrator | coder | planner | qa-tester
+                          (e.g. <your-home>/.hermes)
+       __PROFILE__      — gateway profile name: orchestrator | coding | planner | qa-tester
                           (or your own profile name from $HERMES_HOME/profiles/)
 
   3. Load the agent:
@@ -51,7 +51,7 @@
     - --profile argument -> private
     - StandardOutPath / StandardErrorPath -> gateway-private.log / gateway-private.error.log
 
-  Conceptual roles (used in docs/profiles.md): orchestrator, coder, planner, qa-tester.
+  Conceptual roles (used in docs/profiles.md): orchestrator, coding, planner, qa-tester.
 -->
 <plist version="1.0">
 <dict>
@@ -64,7 +64,7 @@
   <dict>
     <!--
       HERMES_HOME: absolute path to the Hermes runtime directory.
-      launchd does NOT expand ~ — use the full path, e.g. /Users/yourname/.hermes
+      launchd does NOT expand ~ — use the full path, e.g. <your-home>/.hermes
     -->
     <key>HERMES_HOME</key>
     <string>__HERMES_HOME__</string>

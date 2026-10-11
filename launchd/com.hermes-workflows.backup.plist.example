@@ -37,7 +37,7 @@
 
      Placeholders in this file:
        __HERMES_HOME__          — absolute path to the Hermes runtime directory
-                                  (e.g. /Users/yourname/.hermes)
+                                  (e.g. <your-home>/.hermes)
        __HERMES_WORKFLOWS_DIR__ — absolute path to this repo
 
   3. Load the agent:
@@ -59,7 +59,7 @@
   <dict>
     <!--
       HERMES_HOME: absolute path to the Hermes runtime directory.
-      launchd does NOT expand ~ — use /Users/yourname/.hermes, not ~/.hermes.
+      launchd does NOT expand ~ — use <your-home>/.hermes, not ~/.hermes.
     -->
     <key>HERMES_HOME</key>
     <string>__HERMES_HOME__</string>

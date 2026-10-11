@@ -287,7 +287,7 @@ class BoardCase(unittest.TestCase):
         with self.conn:
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, completed_at, assignee) "
-                "VALUES (?, ?, ?, ?, ?, 'coder')",
+                "VALUES (?, ?, ?, ?, ?, 'coding')",
                 (card_id, f"card {card_id}", status, self.now - DAY, completed_at),
             )
             for parent in parents:
@@ -498,12 +498,12 @@ class TestAcceptAndRework(BoardCase):
 
     def test_rework_sends_it_back_to_whoever_did_the_work(self):
         self.card("R2", "scheduled")
-        self.handed_off_by("R2", "coder")
+        self.handed_off_by("R2", "coding")
         self.cli.rework(self.conn, "R2", comment="row 7 is wrong: expected 12, got 21",
                         spec=self.spec, now=self.now)
         row = self.conn.execute(
             "SELECT status, assignee FROM tasks WHERE id = 'R2'").fetchone()
-        self.assertEqual((row["status"], row["assignee"]), ("ready", "coder"),
+        self.assertEqual((row["status"], row["assignee"]), ("ready", "coding"),
                          "back to to do, and assigned to a profile the dispatcher can spawn")
         self.assertIn("[rework] row 7 is wrong: expected 12, got 21", self.comments("R2"))
 
@@ -511,7 +511,7 @@ class TestAcceptAndRework(BoardCase):
         """Same rule as upstream unblock: not ready while it still waits."""
         self.card("RP", "running")
         self.card("R3", "scheduled", parents=["RP"])
-        self.cli.rework(self.conn, "R3", comment="redo", to="coder", spec=self.spec)
+        self.cli.rework(self.conn, "R3", comment="redo", to="coding", spec=self.spec)
         self.assertEqual(self.status("R3"), "todo")
 
     def test_rework_refuses_when_nobody_can_be_found_to_do_it(self):
@@ -628,8 +628,8 @@ class TestBoardAlarms(BoardCase):
     # -- a card in the runtime's agent review lane ---------------------------
 
     def test_a_review_card_on_a_real_profile_is_paged_immediately(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self.card("RV", "review")          # assignee coder: a real profile
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self.card("RV", "review")          # assignee coding: a real profile
         self.alarm_tick()
         pages = self.titles("agent_review_lane")
         self.assertEqual(len(pages), 1)
@@ -644,7 +644,7 @@ class TestBoardAlarms(BoardCase):
         self.assertEqual(self.titles("agent_review_lane"), [])
 
     def test_the_review_alarm_pages_once_and_closes_when_it_leaves(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
         self.card("RC", "review")
         for i in range(5):
             self.alarm_tick(now=self.now + i * 60)

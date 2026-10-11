@@ -86,17 +86,17 @@ reads the token from your vault and performs the HA call itself, so the agent
 
 ```bash
 export HASS_BASE_URL="http://homeassistant.local:8123"
-HASS_VAULT=seckit bash examples/home-assistant-healthcheck/ha-broker.sh
+HASS_VAULT=seckit bash examples/smart-home-healthcheck/ha-broker.sh
 # or 1Password:
 HASS_VAULT=op HASS_OP_REF="op://Hermes/HA Token/credential" \
-  bash examples/home-assistant-healthcheck/ha-broker.sh
+  bash examples/smart-home-healthcheck/ha-broker.sh
 ```
 
 **Prove it offline (placeholder token, no network):**
 
 ```bash
 HASS_MOCK=1 HASS_TOKEN="placeholder-not-a-real-token" \
-  bash examples/home-assistant-healthcheck/ha-broker.sh | tee /tmp/proof.txt
+  bash examples/smart-home-healthcheck/ha-broker.sh | tee /tmp/proof.txt
 grep -F "placeholder-not-a-real-token" /tmp/proof.txt && echo LEAK || echo "no leak (pass)"
 ```
 
@@ -113,17 +113,17 @@ connectivity probe, and then invokes the broker — all in one go.
 **Offline proof (no real HA or token needed):**
 
 ```bash
-HASS_MOCK=1 bash examples/home-assistant-healthcheck/run.sh
+HASS_MOCK=1 bash examples/smart-home-healthcheck/run.sh
 ```
 
 **Live run — broker resolves the token from your vault (preferred):**
 
 ```bash
 export HASS_BASE_URL="http://homeassistant.local:8123"
-HASS_VAULT=seckit bash examples/home-assistant-healthcheck/run.sh
+HASS_VAULT=seckit bash examples/smart-home-healthcheck/run.sh
 # or 1Password:
 HASS_VAULT=op HASS_OP_REF="op://Hermes/HA Token/credential" \
-  bash examples/home-assistant-healthcheck/run.sh
+  bash examples/smart-home-healthcheck/run.sh
 ```
 
 **Live run — direct token injection (fallback):**
@@ -131,7 +131,7 @@ HASS_VAULT=op HASS_OP_REF="op://Hermes/HA Token/credential" \
 ```bash
 export HASS_BASE_URL="http://homeassistant.local:8123"
 export HASS_TOKEN="…"   # long-lived access token — never commit it
-bash examples/home-assistant-healthcheck/run.sh
+bash examples/smart-home-healthcheck/run.sh
 ```
 
 If you prefer to run the connectivity probe in isolation (e.g. to debug
@@ -140,7 +140,7 @@ network/auth separately from the broker), it can be called directly:
 ```bash
 export HASS_BASE_URL="http://homeassistant.local:8123"
 export HASS_TOKEN="…"
-bash examples/home-assistant-healthcheck/check-hass-connectivity.sh
+bash examples/smart-home-healthcheck/check-hass-connectivity.sh
 ```
 
 If that prints your HA version and a count of unavailable entities, the agent

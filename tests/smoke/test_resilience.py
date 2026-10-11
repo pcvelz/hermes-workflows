@@ -138,7 +138,7 @@ def add_card(conn, card_id: str, title: str, status: str = "ready") -> None:
     with conn:
         conn.execute(
             "INSERT INTO tasks (id, title, status, created_at, assignee) "
-            "VALUES (?, ?, ?, ?, 'coder')",
+            "VALUES (?, ?, ?, ?, 'coding')",
             (card_id, title, status, now),
         )
 
@@ -647,7 +647,7 @@ class TestOnTheRealBoard(unittest.TestCase):
         with self.conn:
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, assignee) "
-                "VALUES ('STRAND-1', 'nobody can run me', 'ready', ?, 'coder')",
+                "VALUES ('STRAND-1', 'nobody can run me', 'ready', ?, 'coding')",
                 (old,),
             )
         report = self._run(stranded_after=3600)
@@ -677,7 +677,7 @@ class TestOnTheRealBoard(unittest.TestCase):
         """A review gate assigned to a person has no profile behind it, so no
         worker is ever meant to claim it. It is permanently ready and
         permanently fine -- paging about it is how a channel earns a mute."""
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
         self._old_ready("GATE-1", "review gate for the user", "user", age=90 * 86400)
         report = self._run(stranded_after=3600)
         self.assertEqual(
@@ -689,8 +689,8 @@ class TestOnTheRealBoard(unittest.TestCase):
 
     def test_an_assignee_with_a_real_profile_is_still_stranded(self):
         """The human-lane rule must not swallow a genuinely stuck card."""
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("REALLY-1", "nobody picked me up", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("REALLY-1", "nobody picked me up", "coding")
         report = self._run(stranded_after=3600)
         self.assertIn("stranded", [e["kind"] for e in report["escalations"]])
 
@@ -711,10 +711,10 @@ class TestOnTheRealBoard(unittest.TestCase):
     def test_a_full_board_with_an_idle_assignee_is_still_stranded(self):
         """Both halves are required. A full board whose worker belongs to a
         DIFFERENT assignee means this card really is being passed over."""
-        for name in ("coder", "qa-tester"):
+        for name in ("coding", "qa-tester"):
             (_HOME / "profiles" / name).mkdir(parents=True, exist_ok=True)
         self._old_ready("PASSED-1", "being passed over", "qa-tester")
-        self._old_ready("OTHER-1", "someone else's work", "coder", status="running")
+        self._old_ready("OTHER-1", "someone else's work", "coding", status="running")
         report = self._run(stranded_after=3600, max_in_progress=1)
         self.assertIn("stranded", [e["kind"] for e in report["escalations"]])
 
@@ -722,10 +722,10 @@ class TestOnTheRealBoard(unittest.TestCase):
         """'No worker' with a healthy box sent a reader bisecting for an hour:
         the dispatcher was at max_in_progress and said nothing. The page names
         the cap and the card holding it."""
-        for name in ("coder", "qa-tester"):
+        for name in ("coding", "qa-tester"):
             (_HOME / "profiles" / name).mkdir(parents=True, exist_ok=True)
         self._old_ready("HELD-1", "waiting on the cap", "qa-tester")
-        self._old_ready("HOLDER-1", "the one running", "coder", status="running")
+        self._old_ready("HOLDER-1", "the one running", "coding", status="running")
         report = self._run(stranded_after=3600, max_in_progress=1)
         page = [e for e in report["escalations"] if e["kind"] == "stranded"]
         self.assertEqual(len(page), 1)
@@ -734,9 +734,9 @@ class TestOnTheRealBoard(unittest.TestCase):
     def test_a_card_queued_behind_its_profiles_own_cap_is_not_stranded(self):
         """kanban.max_in_progress_per_profile: 1 and that profile already
         running means the card is next in line for its role."""
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("ROLEQ-1", "next for coder", "coder")
-        self._old_ready("ROLEBUSY-1", "coder at work", "coder", status="running")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("ROLEQ-1", "next for coding", "coding")
+        self._old_ready("ROLEBUSY-1", "coding at work", "coding", status="running")
         report = self._run(stranded_after=3600, max_in_progress=5,
                            config={"kanban": {"max_in_progress_per_profile": 1}})
         self.assertEqual(
@@ -749,8 +749,8 @@ class TestOnTheRealBoard(unittest.TestCase):
         carrying an expired lock is skipped by every real dispatch tick and
         lands in no bucket, while a dry run promises to spawn it. The
         reconciler names it, clears the lock, and the next dispatch claims it."""
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("LOCKED-1", "holds an old lock", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("LOCKED-1", "holds an old lock", "coding")
         with self.conn:
             self.conn.execute(
                 "UPDATE tasks SET claim_lock = 'dead-worker', claim_expires = ? "
@@ -779,9 +779,9 @@ class TestOnTheRealBoard(unittest.TestCase):
         kanban.max_in_progress is set: below the cap, with anything running,
         the dispatcher still spawns nothing and fills no bucket. The page names
         it and the configuration that avoids it."""
-        for name in ("coder", "qa-tester"):
+        for name in ("coding", "qa-tester"):
             (_HOME / "profiles" / name).mkdir(parents=True, exist_ok=True)
-        self._old_ready("DOUBLE-1", "below the cap, never spawned", "coder")
+        self._old_ready("DOUBLE-1", "below the cap, never spawned", "coding")
         self._old_ready("RUN-1", "the one running", "qa-tester", status="running")
         report = self._run(stranded_after=3600, max_in_progress=2)
         page = [e for e in report["escalations"] if e["kind"] == "stranded"]
@@ -796,7 +796,7 @@ class TestOnTheRealBoard(unittest.TestCase):
                 start = now - 86400 + i * 10000
                 self.conn.execute(
                     "INSERT INTO task_runs (task_id, profile, status, started_at, "
-                    "ended_at, outcome) VALUES (?, 'coder', 'done', ?, ?, ?)",
+                    "ended_at, outcome) VALUES (?, 'coding', 'done', ?, ?, ?)",
                     (card_id, start, start + d, outcome))
 
     def _overrunning(self, card_id, elapsed):
@@ -807,11 +807,11 @@ class TestOnTheRealBoard(unittest.TestCase):
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, started_at, assignee, "
                 "worker_pid, last_heartbeat_at, claim_lock, claim_expires) "
-                "VALUES (?, 'busy going nowhere', 'running', ?, ?, 'coder', 4242, ?, 'l', ?)",
+                "VALUES (?, 'busy going nowhere', 'running', ?, ?, 'coding', 4242, ?, 'l', ?)",
                 (card_id, now - 90000, now - elapsed, now - 30, now + 3600))
             self.conn.execute(
                 "INSERT INTO task_runs (task_id, profile, status, started_at) "
-                "VALUES (?, 'coder', 'running', ?)", (card_id, now - elapsed))
+                "VALUES (?, 'coding', 'running', ?)", (card_id, now - elapsed))
             self.conn.execute(
                 "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
                 "VALUES (?, NULL, 'commented', '{}', ?)", (card_id, now - 60))
@@ -843,7 +843,7 @@ class TestOnTheRealBoard(unittest.TestCase):
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, started_at, assignee, "
                 "worker_pid, last_heartbeat_at, claim_lock, claim_expires) "
-                "VALUES (?, 'never came up', 'running', ?, ?, 'coder', 4343, ?, 'l', ?)",
+                "VALUES (?, 'never came up', 'running', ?, ?, 'coding', 4343, ?, 'l', ?)",
                 (card_id, now - spawned_ago, now - spawned_ago, now - 30, now + 3600))
             self.conn.execute(
                 "INSERT INTO task_events (task_id, run_id, kind, payload, created_at) "
@@ -869,8 +869,8 @@ class TestOnTheRealBoard(unittest.TestCase):
                           if e.get("card_id") == "TALKING-1"], [])
 
     def test_a_live_claim_lock_is_left_alone(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("LIVE-1", "claim not yet expired", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("LIVE-1", "claim not yet expired", "coding")
         with self.conn:
             self.conn.execute(
                 "UPDATE tasks SET claim_lock = 'live', claim_expires = ? "
@@ -880,17 +880,17 @@ class TestOnTheRealBoard(unittest.TestCase):
         self.assertEqual(row["claim_lock"], "live")
 
     def test_a_card_below_the_cap_does_not_blame_the_cap(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("FREE-1", "nothing running", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("FREE-1", "nothing running", "coding")
         report = self._run(stranded_after=3600, max_in_progress=2)
         page = [e for e in report["escalations"] if e["kind"] == "stranded"]
         self.assertEqual(len(page), 1)
         self.assertNotIn("concurrency cap", page[0]["body"])
 
     def test_an_ignore_rule_suppresses_by_id_assignee_or_title(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("IGN-1", "by id", "coder")
-        self._old_ready("IGN-2", "DO NOT DISPATCH: parked", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("IGN-1", "by id", "coding")
+        self._old_ready("IGN-2", "DO NOT DISPATCH: parked", "coding")
         config = {"escalation": {"ignore": {
             "card_ids": ["IGN-1"],
             "title_patterns": ["*do not dispatch*"],
@@ -910,7 +910,7 @@ class TestOnTheRealBoard(unittest.TestCase):
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, started_at, "
                 "assignee, worker_pid, last_heartbeat_at, claim_lock, claim_expires) "
-                "VALUES (?, ?, 'running', ?, ?, 'coder', 4242, ?, 'lock', ?)",
+                "VALUES (?, ?, 'running', ?, ?, 'coding', 4242, ?, 'lock', ?)",
                 (card_id, title, now - 86400, now - progress_age,
                  now - heartbeat_age, now + 3600),
             )
@@ -984,7 +984,7 @@ class TestOnTheRealBoard(unittest.TestCase):
         self.assertEqual(
             [e for e in report["escalations"] if e["kind"] == "stalled"], []
         )
-        self.assertEqual(seen, ["hermes:coder:default/THINK-1"])
+        self.assertEqual(seen, ["hermes:coding:default/THINK-1"])
 
     def test_a_probe_that_raises_does_not_suppress_a_real_stall(self):
         self._running_card("THINK-2", "probe is broken",
@@ -1030,9 +1030,9 @@ class TestOnTheRealBoard(unittest.TestCase):
         self.assertEqual(len(stalled), 1, f"sent {len(stalled)} pages, expected 1")
 
     def test_a_stranded_card_across_many_ticks_pages_exactly_once(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
         base = int(time.time())
-        self._old_ready("QUIET-1", "nobody picked me up", "coder")
+        self._old_ready("QUIET-1", "nobody picked me up", "coding")
         for tick in range(30):
             self._tick(base + tick * 60, stranded_after=3600)
         stranded = [m for m in self.sender.messages if "stranded" in m.title]
@@ -1115,8 +1115,8 @@ class TestOnTheRealBoard(unittest.TestCase):
     # -- 5e. the notify allowlist -------------------------------------------
 
     def test_notify_on_narrows_to_the_hard_breaks_only(self):
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("NARROW-1", "merely stranded", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("NARROW-1", "merely stranded", "coding")
         config = {"escalation": {
             "notify_on": ["gave_up", "blocked", "budget_exhausted", "stalled"],
         }}
@@ -1128,8 +1128,8 @@ class TestOnTheRealBoard(unittest.TestCase):
 
     def test_an_allowlist_suppression_is_still_reported(self):
         """Visible, just not pushed -- an operator must be able to see it."""
-        (_HOME / "profiles" / "coder").mkdir(parents=True, exist_ok=True)
-        self._old_ready("NARROW-2", "merely stranded", "coder")
+        (_HOME / "profiles" / "coding").mkdir(parents=True, exist_ok=True)
+        self._old_ready("NARROW-2", "merely stranded", "coding")
         report = self._run(
             stranded_after=3600,
             config={"escalation": {"notify_on": ["gave_up"]}},
@@ -1200,8 +1200,8 @@ class TestOnTheRealBoard(unittest.TestCase):
 
     def test_the_caller_purpose_tag_matches_the_documented_format(self):
         self.assertEqual(
-            escalator.caller_purpose_tag("coder", "project-a", "t_0000abcd"),
-            "hermes:coder:project-a/t_0000abcd",
+            escalator.caller_purpose_tag("coding", "project-a", "t_0000abcd"),
+            "hermes:coding:project-a/t_0000abcd",
         )
 
     # -- 6. delivery failures must not lose a card --------------------------
@@ -1308,9 +1308,9 @@ class TestRetryLimitOne(unittest.TestCase):
         with self.conn:
             self.conn.execute(
                 "INSERT INTO task_runs (task_id, profile, status, started_at, ended_at, "
-                "outcome, summary) VALUES (?, 'coder', 'released', ?, ?, 'handed_off', ?)",
+                "outcome, summary) VALUES (?, 'coding', 'released', ?, ?, 'handed_off', ?)",
                 (card_id, now - 7200, now - 3600, HANDOVER))
-        kanban_db.add_comment(self.conn, card_id, "coder",
+        kanban_db.add_comment(self.conn, card_id, "coding",
                               f"[hand-off -> qa (to_do)]\n{HANDOVER}")
 
     def _fail(self, card_id, outcome, error):
@@ -1470,7 +1470,7 @@ class TestBackendNotServing(unittest.TestCase):
             self.conn.execute(
                 "INSERT INTO tasks (id, title, status, created_at, started_at, assignee, "
                 "worker_pid, last_heartbeat_at, claim_lock, claim_expires) "
-                "VALUES (?, 'waits on the model', 'running', ?, ?, 'coder', 4343, ?, 'l', ?)",
+                "VALUES (?, 'waits on the model', 'running', ?, ?, 'coding', 4343, ?, 'l', ?)",
                 (card_id, now - 7200, now - 7200, now - heartbeat_ago, now + 900))
             self.conn.execute(
                 "INSERT INTO task_comments (task_id, author, body, created_at) "

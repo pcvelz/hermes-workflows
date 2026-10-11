@@ -26,7 +26,7 @@
 
      Placeholders in this file:
        __HERMES_HOME__          — absolute path to the Hermes runtime directory
-                                  (e.g. /Users/yourname/.hermes)
+                                  (e.g. <your-home>/.hermes)
        __PROJECT_DIR__          — absolute path to the project repo the bridge manages
        __PYTHON3__              — absolute path to a python3 binary, e.g.:
                                     /usr/bin/python3  (system, stdlib-only bridge)
@@ -54,7 +54,7 @@
     <!--
       HERMES_HOME: absolute path to the Hermes runtime directory.
       Used by the bridge to locate logs and (optionally) the kanban DB.
-      launchd does NOT expand ~ — use /Users/yourname/.hermes, not ~/.hermes.
+      launchd does NOT expand ~ — use <your-home>/.hermes, not ~/.hermes.
     -->
     <key>HERMES_HOME</key>
     <string>__HERMES_HOME__</string>

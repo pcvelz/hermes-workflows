@@ -20,7 +20,7 @@ from unittest import mock
 PLUGIN = Path(__file__).resolve().parents[2] / "plugins" / "claude-code-bridge"
 sys.path.insert(0, str(PLUGIN))
 
-from lib import config, session  # noqa: E402
+from lib import config, mcp, session, spool  # noqa: E402
 
 FAKE_TEMPLATE = r'''#!{python}
 import sys, time
@@ -106,14 +106,18 @@ class LaunchArgvTests(SessionTestCase):
         self.assertEqual(argv[9:11], ["--allowedTools", "Read,Glob,Grep,WebSearch,WebFetch"])
         self.assertEqual(argv[11], "--append-system-prompt")
         self.assertEqual(argv[12], cfg["append_system_prompt"])
-        self.assertEqual(argv[13:], ["--session-id", state["session_id"]])
+        self.assertEqual(argv[13:15], ["--disallowedTools", ",".join(session.BUILT_IN_DENIED)])
+        self.assertEqual(argv[15], "--mcp-config")
+        self.assertEqual(argv[17], "--strict-mcp-config")
+        self.assertEqual(argv[18:], ["--session-id", state["session_id"]])
         self.assertNotIn("--resume", argv)
 
     def test_resume_uses_resume_flag(self):
         cfg = self.make_cfg()
         state = {"session_id": "abc-session", "started_once": True}
         argv = session.launch_argv(cfg, CID, state)
-        self.assertEqual(argv[13:], ["--resume", "abc-session"])
+        self.assertEqual(argv[17], "--strict-mcp-config")
+        self.assertEqual(argv[18:], ["--resume", "abc-session"])
         self.assertNotIn("--session-id", argv)
 
     def test_missing_session_id_generates_uuid(self):
@@ -161,7 +165,11 @@ class PrepareDirTests(SessionTestCase):
         self.assertEqual(entry["type"], "command")
         expected = f"{shlex.quote(sys.executable)} {shlex.quote(str(hook))}"
         self.assertEqual(entry["command"], expected)
-        self.assertEqual(set(settings), {"hooks"})
+        self.assertEqual(set(settings), {"hooks", "permissions"})
+        self.assertEqual(
+            settings["permissions"],
+            {"deny": ["Read(./.mcp.json)", f"Read(/{d}/.mcp.json)"]},
+        )
 
 
 class PaneParsingTests(unittest.TestCase):
@@ -325,6 +333,474 @@ class LaunchFingerprintTests(unittest.TestCase):
         fp = session.fingerprint(self.cfg, CID)
         (self.tmp / "keys" / "svc" / "api-key").write_text("fp-test-key-rotated\n", encoding="utf-8")
         self.assertNotEqual(fp, session.fingerprint(self.cfg, CID))
+
+
+OTHER = "test-chan-2"
+OVERRIDE_TOOL = "Edit(./NOTES.md)"
+OVERRIDE_PROMPT = "Your notes live in NOTES.md; keep them current."
+
+
+def _flag(argv, flag):
+    return argv[argv.index(flag) + 1]
+
+
+class ChannelOverrideTests(SessionTestCase):
+    """channels.<cid> in claude_code_bridge: extra allowed_tools / append_system_prompt for that channel only."""
+
+    def _with_override(self, **override):
+        cfg = self.make_cfg()
+        cfg["channels"] = {CID: {"allowed_tools": [OVERRIDE_TOOL], "append_system_prompt": OVERRIDE_PROMPT,
+                                 **override}}
+        return cfg
+
+    def _argv(self, cfg, cid):
+        return session.launch_argv(cfg, cid, {"session_id": "11111111-2222-3333-4444-555555555555",
+                                              "started_once": False})
+
+    def test_no_channels_key_argv_unchanged(self):
+        base = self.make_cfg()
+        base.pop("channels", None)
+        argv = self._argv(base, CID)
+        self.assertEqual(_flag(argv, "--allowedTools"), "Read,Glob,Grep,WebSearch,WebFetch")
+        self.assertEqual(_flag(argv, "--append-system-prompt"), config.DEFAULTS["append_system_prompt"])
+        # An empty channels block is the same as no block.
+        empty = self.make_cfg(channels={})
+        self.assertEqual(self._argv(empty, CID), argv)
+        self.assertEqual(self._argv(empty, OTHER), self._argv(base, OTHER))
+
+    def test_override_channel_gets_extra_tools_and_prompt(self):
+        cfg = self._with_override()
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--allowedTools"),
+                         "Read,Glob,Grep,WebSearch,WebFetch," + OVERRIDE_TOOL)
+        self.assertEqual(_flag(argv, "--append-system-prompt"),
+                         config.DEFAULTS["append_system_prompt"] + "\n\n" + OVERRIDE_PROMPT)
+        # The global config is never mutated by the per-channel view.
+        self.assertEqual(cfg["allowed_tools"], config.DEFAULTS["allowed_tools"])
+        self.assertEqual(cfg["append_system_prompt"], config.DEFAULTS["append_system_prompt"])
+
+    def test_other_channel_unaffected(self):
+        cfg = self._with_override()
+        base = self.make_cfg()
+        base.pop("channels", None)
+        self.assertEqual(self._argv(cfg, OTHER), self._argv(base, OTHER))
+        self.assertNotIn(OVERRIDE_TOOL, _flag(self._argv(cfg, OTHER), "--allowedTools"))
+
+    def test_fingerprint_differs_only_for_overridden_channel(self):
+        cfg = self._with_override()
+        base = self.make_cfg()
+        base.pop("channels", None)
+        self.assertNotEqual(session.fingerprint(cfg, CID), session.fingerprint(base, CID))
+        self.assertEqual(session.fingerprint(cfg, OTHER), session.fingerprint(base, OTHER))
+
+    def test_empty_prompt_override_keeps_global_prompt(self):
+        cfg = self._with_override(append_system_prompt="")
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--append-system-prompt"), config.DEFAULTS["append_system_prompt"])
+        self.assertIn(OVERRIDE_TOOL, _flag(argv, "--allowedTools"))
+
+    def test_unknown_subkeys_and_malformed_override_ignored(self):
+        base = self.make_cfg()
+        base.pop("channels", None)
+        unknown = self.make_cfg(channels={CID: {"bogus": [1], "temperature": "high"}})
+        self.assertEqual(self._argv(unknown, CID), self._argv(base, CID))
+        malformed = self.make_cfg(channels={CID: "not-a-mapping"})
+        self.assertEqual(self._argv(malformed, CID), self._argv(base, CID))
+
+
+DENY_KEYS = "Read(//home/alice/.hermes/keys/**)"
+DENY_GLOBAL = "Read(//srv/global/**)"
+DENY_CHANNEL = "Grep(//srv/channel/**)"
+
+
+class DisallowedToolsTests(SessionTestCase):
+    """disallowed_tools -> --disallowedTools: global list plus the channel's own; no flag when empty."""
+
+    def _argv(self, cfg, cid):
+        return session.launch_argv(cfg, cid, {"session_id": "11111111-2222-3333-4444-555555555555",
+                                              "started_once": False})
+
+    def test_only_built_in_denies_when_nothing_else_is_denied(self):
+        cfg = self.make_cfg()
+        self.assertEqual(cfg["disallowed_tools"], [])
+        self.assertEqual(_flag(self._argv(cfg, CID), "--disallowedTools"), ",".join(session.BUILT_IN_DENIED))
+
+    def test_global_denies_are_passed_as_one_flag(self):
+        cfg = self.make_cfg(disallowed_tools=[DENY_GLOBAL, DENY_KEYS])
+        argv = self._argv(cfg, CID)
+        self.assertEqual(_flag(argv, "--disallowedTools"),
+                         ",".join(session.BUILT_IN_DENIED + [DENY_GLOBAL, DENY_KEYS]))
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertIn("--session-id", argv)
+
+    def test_channel_denies_merge_with_global_without_duplicates(self):
+        cfg = self.make_cfg(disallowed_tools=[DENY_GLOBAL])
+        cfg["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL, DENY_GLOBAL]}}
+        self.assertEqual(_flag(self._argv(cfg, CID), "--disallowedTools"),
+                         ",".join(session.BUILT_IN_DENIED + [DENY_GLOBAL, DENY_CHANNEL]))
+        # The global config itself is not changed by the channel view.
+        self.assertEqual(cfg["disallowed_tools"], [DENY_GLOBAL])
+
+    def test_channel_denies_apply_to_that_channel_only(self):
+        cfg = self.make_cfg()
+        cfg["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL]}}
+        self.assertEqual(_flag(self._argv(cfg, CID), "--disallowedTools"),
+                         ",".join(session.BUILT_IN_DENIED + [DENY_CHANNEL]))
+        self.assertEqual(_flag(self._argv(cfg, OTHER), "--disallowedTools"), ",".join(session.BUILT_IN_DENIED))
+
+    def test_denies_change_the_launch_fingerprint(self):
+        base = self.make_cfg()
+        denied = self.make_cfg()
+        denied["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL]}}
+        self.assertNotEqual(session.fingerprint(denied, CID), session.fingerprint(base, CID))
+        self.assertEqual(session.fingerprint(denied, OTHER), session.fingerprint(base, OTHER))
+
+    def test_malformed_denies_are_ignored(self):
+        base = self.make_cfg()
+        cfg = self.make_cfg(channels={CID: {"disallowed_tools": 42}})
+        self.assertEqual(self._argv(cfg, CID), self._argv(base, CID))
+
+
+class BuiltInConnectorDenyTests(SessionTestCase):
+    """The built-in Chrome connector is denied on every launch: --strict-mcp-config does not stop it."""
+
+    def _argv(self, cfg, cid, has_mcp=False):
+        return session._argv(cfg, cid, "11111111-2222-3333-4444-555555555555", has_mcp, False)
+
+    def test_chrome_connector_is_denied_with_and_without_mcp_servers(self):
+        cfg = self.make_cfg()
+        for has_mcp in (False, True):
+            denied = _flag(self._argv(cfg, CID, has_mcp), "--disallowedTools").split(",")
+            self.assertIn("mcp__claude-in-chrome", denied)
+
+    def test_chrome_connector_is_denied_once_when_channel_overrides_denies(self):
+        cfg = self.make_cfg(disallowed_tools=[DENY_GLOBAL])
+        cfg["channels"] = {CID: {"disallowed_tools": [DENY_CHANNEL]}}
+        denied = _flag(self._argv(cfg, CID), "--disallowedTools").split(",")
+        self.assertEqual(denied.count("mcp__claude-in-chrome"), 1)
+
+    def test_chrome_connector_is_not_in_the_allow_list(self):
+        cfg = self.make_cfg()
+        allowed = _flag(self._argv(cfg, CID), "--allowedTools").split(",")
+        self.assertFalse(any("claude-in-chrome" in t for t in allowed))
+
+
+class ForChannelTests(unittest.TestCase):
+    def test_channel_disallowed_tools_string_form_is_split(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["channels"] = {CID: {"disallowed_tools": "Read(//a/**), Grep(//b/**)"}}
+        self.assertEqual(config.for_channel(cfg, CID)["disallowed_tools"],
+                         ["Read(//a/**)", "Grep(//b/**)"])
+
+    def test_returns_copy_and_leaves_global_untouched(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["channels"] = {CID: {"allowed_tools": [OVERRIDE_TOOL]}}
+        before = copy.deepcopy(cfg)
+        eff = config.for_channel(cfg, CID)
+        self.assertIn(OVERRIDE_TOOL, eff["allowed_tools"])
+        self.assertEqual(cfg, before)
+        self.assertIsNot(eff, cfg)
+
+
+class ChannelModelEffortArgvTests(SessionTestCase):
+    """channels.<cid>.model / effort reach the launch argv and the launch fingerprint for that channel only."""
+
+    def _cfg(self, **override):
+        cfg = self.make_cfg(effort="high")
+        if override:
+            cfg["channels"] = {CID: override}
+        return cfg
+
+    def _argv(self, cfg, cid):
+        return session.launch_argv(cfg, cid, {"session_id": "11111111-2222-3333-4444-555555555555",
+                                              "started_once": False})
+
+    def test_overridden_channel_argv_has_model_and_effort(self):
+        argv = self._argv(self._cfg(model="sonnet", effort="medium"), CID)
+        i = argv.index("--model")
+        self.assertEqual(argv[i:i + 4], ["--model", "sonnet", "--effort", "medium"])
+
+    def test_other_channel_keeps_global_model_and_effort(self):
+        argv = self._argv(self._cfg(model="sonnet", effort="medium"), OTHER)
+        self.assertEqual(_flag(argv, "--model"), config.DEFAULTS["model"])
+        self.assertEqual(_flag(argv, "--effort"), "high")
+
+    def test_fingerprint_differs_when_only_model_changes(self):
+        base = self._cfg(effort="high")
+        changed = self._cfg(model="sonnet", effort="high")
+        self.assertNotEqual(session.fingerprint(changed, CID), session.fingerprint(base, CID))
+        self.assertEqual(session.fingerprint(changed, OTHER), session.fingerprint(base, OTHER))
+
+
+class SoulArgvTests(unittest.TestCase):
+    """A soul_file's text reaches claude as one intact --append-system-prompt value, also through the shell tmux uses."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ccb-soul-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.hermes_home = self.tmp / "hermes-home"
+        self.hermes_home.mkdir()
+        patcher = mock.patch.dict(os.environ, {"HERMES_HOME": str(self.hermes_home)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_multi_kb_soul_with_quotes_and_newlines_survives_the_shell(self):
+        soul = (
+            "Quotes ' and \" and $HOME and `ticks`, backslash \\, semicolon ; pipe | ampersand &.\n"
+            + "Unicode ✓ guidance paragraph for the channel. " * 120
+            + "\n\n- first bullet\n- second bullet\n"
+        )
+        self.assertGreater(len(soul.encode("utf-8")), 4000)
+        (self.hermes_home / "soul.md").write_text(soul, encoding="utf-8")
+        fake = self.tmp / "fake_claude.py"
+        fake.write_text(
+            f"#!{sys.executable}\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n", encoding="utf-8"
+        )
+        fake.chmod(0o755)
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg.update(
+            claude_bin=str(fake),
+            home=str(self.tmp / "bridge"),
+            channels={CID: {"soul_file": "soul.md"}},
+        )
+        state = {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False}
+        argv = session.launch_argv(cfg, CID, state)
+        expected = config.for_channel(cfg, CID)["append_system_prompt"]
+        self.assertIn(soul.strip(), expected)
+        self.assertEqual(argv[argv.index("--append-system-prompt") + 1], expected)
+        # The same string tmux new-session receives: shlex.join, then run by the shell.
+        out = subprocess.run(
+            ["sh", "-c", shlex.join(argv)],
+            env=session.clean_env(),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        ).stdout
+        received = json.loads(out)
+        self.assertEqual(received[received.index("--append-system-prompt") + 1], expected)
+
+
+class LargePromptLaunchTests(SessionTestCase):
+    """A large per-channel soul reaches claude through a launch script, so the tmux command stays short."""
+
+    def setUp(self):
+        super().setUp()
+        self.soul = "Guidance line with 'quotes', $dollars and `ticks`.\n" * 400
+        self.assertGreaterEqual(len(self.soul.encode("utf-8")), 20_000)
+        (self.tmp / "hermes-home").mkdir(parents=True, exist_ok=True)
+        (self.tmp / "hermes-home" / "soul.md").write_text(self.soul, encoding="utf-8")
+
+    def test_twenty_kb_prompt_gives_short_tmux_command_and_script_carries_prompt(self):
+        cfg = self.make_cfg(channels={CID: {"soul_file": "soul.md"}})
+        real_tmux = session._tmux
+        calls = []
+
+        def record(c, *args, check=False):
+            calls.append(args)
+            return real_tmux(c, *args, check=check)
+
+        with mock.patch.object(session, "_tmux", side_effect=record):
+            self.assertTrue(session.start(cfg, CID, self.new_state()))
+        new_session = next(a for a in calls if a and a[0] == "new-session")
+        command = new_session[-1]
+        self.assertLess(len(command), 300)
+        self.assertEqual(shlex.split(command)[0], "/bin/sh")
+        script_path = Path(shlex.split(command)[1])
+        self.assertEqual(script_path.name, "launch.sh")
+        self.assertEqual(script_path.stat().st_mode & 0o777, 0o700)
+        body = script_path.read_text(encoding="utf-8")  # the prompt spans many lines, so split the whole text
+        self.assertEqual(body.count("\nexec "), 1)
+        argv = shlex.split(body.split("\nexec ", 1)[1])
+        expected = config.for_channel(cfg, CID)["append_system_prompt"]
+        self.assertIn(self.soul.strip(), expected)
+        self.assertEqual(argv[argv.index("--append-system-prompt") + 1], expected)
+
+    def test_failed_new_session_logs_truncated_stderr(self):
+        cfg = self.make_cfg()
+        real_tmux = session._tmux
+        failed = subprocess.CompletedProcess([], 1, stdout="", stderr="command too long " + "x" * 500)
+
+        def fake(c, *args, check=False):
+            if args and args[0] == "new-session":
+                return failed
+            return real_tmux(c, *args, check=check)
+
+        with mock.patch.object(session, "_tmux", side_effect=fake), \
+                self.assertLogs("claude_code_bridge", "WARNING") as logs:
+            self.assertFalse(session.start(cfg, CID, self.new_state()))
+        message = "\n".join(logs.output)
+        self.assertIn("new-session failed for channel " + CID, message)
+        self.assertIn("command too long", message)
+        self.assertNotIn("x" * 201, message)
+
+
+class LargePromptFingerprintTests(unittest.TestCase):
+    """The launch fingerprint covers the full prompt text, not just the launch script path."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="ccb-fp-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.hermes_home = self.tmp / "hermes-home"
+        self.hermes_home.mkdir()
+        patcher = mock.patch.dict(os.environ, {"HERMES_HOME": str(self.hermes_home)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_change_inside_twenty_kb_soul_changes_fingerprint(self):
+        soul = "Guidance line for the channel.\n" * 700
+        self.assertGreaterEqual(len(soul.encode("utf-8")), 20_000)
+        (self.hermes_home / "soul.md").write_text(soul, encoding="utf-8")
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg.update(claude_bin="/usr/bin/true", home=str(self.tmp / "bridge"),
+                   channels={CID: {"soul_file": "soul.md"}})
+        before = session.fingerprint(cfg, CID)
+        self.assertEqual(before, session.fingerprint(cfg, CID))
+        (self.hermes_home / "soul.md").write_text(soul[:10_000] + "Z" + soul[10_001:], encoding="utf-8")
+        self.assertNotEqual(before, session.fingerprint(cfg, CID))
+
+
+class RepoChannelArgvTests(SessionTestCase):
+    """A channel with a cwd is a normal Claude Code session in that repo: no bridge narrowing flags."""
+
+    STATE = {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False}
+
+    def _repo(self):
+        repo = self.tmp / "repo"
+        (repo / ".claude" / "docs").mkdir(parents=True)
+        return repo
+
+    def _cfg(self, repo, mcp_servers=None, **extra):
+        channels = {CID: {"cwd": str(repo), **extra}}
+        return self.make_cfg(channels=channels, allowed_tools=["Read"], disallowed_tools=["Bash(rm:*)"],
+                             mcp_servers=mcp_servers or {})
+
+    def test_repo_channel_is_plain_claude_with_no_permission_or_setting_sources_flags(self):
+        argv = session.launch_argv(self._cfg(self._repo()), CID, self.STATE)
+        self.assertNotIn("--setting-sources", argv)
+        self.assertNotIn("--permission-mode", argv)  # the user's own settings decide the rights
+        self.assertNotIn("--allowedTools", argv)
+
+    def test_repo_channel_denies_only_the_built_in_connectors_and_monitor(self):
+        argv = session.launch_argv(self._cfg(self._repo()), CID, self.STATE)
+        self.assertEqual(_flag(argv, "--disallowedTools"), ",".join(session.BUILT_IN_DENIED))
+        self.assertNotIn("Bash(rm:*)", _flag(argv, "--disallowedTools"))  # the channel's disallowed_tools is not applied
+
+    def test_repo_channel_mcp_servers_get_no_allow_rule_from_the_bridge(self):
+        servers = {"composio": {"type": "http", "url": "https://example.invalid/mcp"},
+                   "browser": {"type": "http", "url": "https://example.invalid/b"}}
+        argv = session.launch_argv(self._cfg(self._repo(), mcp_servers=servers), CID, self.STATE)
+        self.assertNotIn("--allowedTools", argv)
+        self.assertIn("--mcp-config", argv)  # the channel's servers still load; their tools need the user's settings
+
+    def test_repo_channel_keeps_settings_mcp_and_soul(self):
+        cfg = self._cfg(self._repo(), append_system_prompt="SOUL-TEXT")
+        argv = session.launch_argv(cfg, CID, {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False})
+        spool_dir = spool.channel_dir(cfg, CID)
+        self.assertEqual(_flag(argv, "--settings"), str(spool_dir / ".claude" / "settings.json"))
+        self.assertEqual(_flag(argv, "--mcp-config"), str(spool_dir / mcp.MCP_FILE))
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertIn("SOUL-TEXT", _flag(argv, "--append-system-prompt"))
+
+    def test_repo_channel_stop_hook_is_registered_in_the_settings_it_loads(self):
+        cfg = self._cfg(self._repo())
+        d = session.prepare_dir(cfg, CID)
+        settings = json.loads((d / ".claude" / "settings.json").read_text(encoding="utf-8"))
+        self.assertIn("Stop", settings["hooks"])
+        self.assertIn("stop_hook.py", settings["hooks"]["Stop"][0]["hooks"][0]["command"])
+
+    def test_spool_channel_keeps_the_narrowing_flags(self):
+        cfg = self.make_cfg(allowed_tools=["Read"])
+        argv = session.launch_argv(cfg, CID, {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False})
+        self.assertEqual(_flag(argv, "--setting-sources"), "project,local")
+        self.assertEqual(_flag(argv, "--permission-mode"), cfg["permission_mode"])
+        self.assertIn("Read", _flag(argv, "--allowedTools"))
+        self.assertNotIn("--settings", argv)
+
+    def test_missing_cwd_falls_back_to_spool_flags(self):
+        cfg = self._cfg(self.tmp / "does-not-exist")
+        argv = session.launch_argv(cfg, CID, {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False})
+        self.assertEqual(_flag(argv, "--setting-sources"), "project,local")
+        self.assertNotIn("--settings", argv)
+
+
+class RepoPermissionModeTests(SessionTestCase):
+    """repo_permission_mode: unset = plain repo launch (user's settings decide); a valid mode adds --permission-mode
+    to repo channels only. Spool channels keep their locked dontAsk launch whatever the knob says."""
+
+    STATE = {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False}
+
+    def _repo(self, name="repo"):
+        repo = self.tmp / name
+        repo.mkdir(exist_ok=True)
+        return repo
+
+    def test_unset_is_a_plain_repo_launch(self):
+        self.assertEqual(config.DEFAULTS["repo_permission_mode"], "")
+        argv = session.launch_argv(self.make_cfg(channels={CID: {"cwd": str(self._repo())}}), CID, self.STATE)
+        self.assertNotIn("--permission-mode", argv)
+
+    def test_global_valid_mode_is_passed_to_repo_channels(self):
+        cfg = self.make_cfg(repo_permission_mode="bypassPermissions", channels={CID: {"cwd": str(self._repo())}})
+        argv = session.launch_argv(cfg, CID, self.STATE)
+        self.assertEqual(_flag(argv, "--permission-mode"), "bypassPermissions")
+
+    def test_channel_override_applies_to_that_channel_only(self):
+        cfg = self.make_cfg(channels={CID: {"cwd": str(self._repo("a"))}, "999999": {"cwd": str(self._repo("b"))}})
+        cfg["channels"][CID]["repo_permission_mode"] = "acceptEdits"
+        self.assertEqual(_flag(session.launch_argv(cfg, CID, self.STATE), "--permission-mode"), "acceptEdits")
+        self.assertNotIn("--permission-mode", session.launch_argv(cfg, "999999", self.STATE))
+
+    def test_unknown_mode_is_warned_once_and_ignored(self):
+        cfg = self.make_cfg(repo_permission_mode="yolo", channels={CID: {"cwd": str(self._repo())}})
+        with self.assertLogs("claude_code_bridge", level="WARNING") as logs:
+            argv = session.launch_argv(cfg, CID, self.STATE)
+            session.launch_argv(cfg, CID, self.STATE)
+        self.assertNotIn("--permission-mode", argv)
+        self.assertEqual(sum("yolo" in m for m in logs.output), 1)
+
+    def test_spool_channel_stays_locked_even_when_the_knob_is_set(self):
+        cfg = self.make_cfg(repo_permission_mode="bypassPermissions", allowed_tools=["Read"])
+        argv = session.launch_argv(cfg, CID, self.STATE)
+        self.assertEqual(_flag(argv, "--setting-sources"), "project,local")
+        self.assertEqual(_flag(argv, "--permission-mode"), cfg["permission_mode"])
+        self.assertNotEqual(_flag(argv, "--permission-mode"), "bypassPermissions")
+        self.assertIn("Read", _flag(argv, "--allowedTools"))
+
+
+class ClaudeArgsTests(SessionTestCase):
+    """claude_args: a list appended verbatim to the launch argv, globally and per channel (added together)."""
+
+    STATE = {"session_id": "11111111-2222-3333-4444-555555555555", "started_once": False}
+
+    def test_default_is_empty(self):
+        self.assertEqual(config.DEFAULTS["claude_args"], [])
+
+    def test_appended_verbatim_before_the_session_id_on_a_repo_channel(self):
+        repo = self.tmp / "repo"
+        repo.mkdir()
+        cfg = self.make_cfg(claude_args=["--permission-mode", "acceptEdits"],
+                            channels={CID: {"cwd": str(repo)}})
+        argv = session.launch_argv(cfg, CID, self.STATE)
+        i = argv.index("--permission-mode")
+        self.assertEqual(argv[i:i + 2], ["--permission-mode", "acceptEdits"])
+        self.assertLess(i, argv.index("--session-id"))
+
+    def test_appended_before_resume_on_a_spool_channel(self):
+        cfg = self.make_cfg(claude_args=["--add-dir", "/tmp/x"])
+        argv = session.launch_argv(cfg, CID, {**self.STATE, "started_once": True})
+        self.assertLess(argv.index("--add-dir"), argv.index("--resume"))
+        self.assertEqual(argv[-2:], ["--resume", self.STATE["session_id"]])
+
+    def test_channel_args_add_to_global_for_that_channel_only(self):
+        cfg = self.make_cfg(claude_args=["--global-flag"], channels={CID: {"claude_args": ["--channel-flag"]}})
+        eff = config.for_channel(cfg, CID)["claude_args"]
+        self.assertEqual(eff, ["--global-flag", "--channel-flag"])
+        self.assertEqual(config.for_channel(cfg, "999999")["claude_args"], ["--global-flag"])
+
+    def test_claude_args_change_the_launch_fingerprint(self):
+        base = session.fingerprint(self.make_cfg(), CID)
+        self.assertNotEqual(base, session.fingerprint(self.make_cfg(claude_args=["--x"]), CID))
 
 
 if __name__ == "__main__":

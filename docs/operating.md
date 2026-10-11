@@ -109,7 +109,7 @@ A healthy gateway shows `running` in `gateway status`, your model/provider marke
 > Z-Wave / recorder / HACS findings in §3 — come from a **private reference deployment**,
 > shown so you know what real output looks like. They are **not** a measured run of this
 > scaffold (its HA workflow is a design target — see
-> [`examples/home-assistant-healthcheck/README.md`](../examples/home-assistant-healthcheck/README.md)).
+> [`examples/smart-home-healthcheck/README.md`](../examples/smart-home-healthcheck/README.md)).
 > Your own pids, argv, and findings will differ.
 
 On that reference install the file reads pid `1041`, argv `... gateway run --replace`,
@@ -419,7 +419,7 @@ is the safety rail that lets a first-timer let it run without fear.
 
 ---
 
-## 7. The optional cockpit — Hermes Desktop (NOT in this repo)
+## 7. The optional cockpit — a separate desktop app (NOT in this repo)
 
 Everything above works with **only this repo + the `hermes-agent` CLI**. The one thing it
 does *not* give you is a live GUI cockpit / a synchronous HTTP **control endpoint** you
@@ -427,7 +427,7 @@ can script against. Those come from a separate **Hermes Desktop** app that is **
 of this repository** — without Desktop running there is simply no endpoint to call.
 
 When Desktop *is* running it exposes a loopback, bearer-token HTTP control API (port +
-token written to `~/.hermes-desktop/control.json`, mode 0600) for synchronous
+token written to the desktop app's control file, mode 0600; the default path is `~/.hermes-desktop/control.json`, and the `CONTROL_JSON` environment variable overrides it) for synchronous
 observe/steer: `GET /health`, `GET /sessions`, `GET /sessions/<id>/transcript`,
 `POST /chat`, `POST /sessions/<id>/message`. The blocking semantics (a `POST` returns only
 when the turn finishes) make it the cleanest way to drive multi-minute runs from a script
@@ -436,7 +436,7 @@ without polling.
 A **read-only reference client** ships in this repo at
 [`scripts/observe/control-client.sh`](../scripts/observe/control-client.sh) — it reads
 the port/token and does `GET /health`, `/sessions`, and a transcript tail. It **cannot
-start Desktop**; if `~/.hermes-desktop/control.json` is absent it tells you Desktop isn't
+start Desktop**; if the desktop app's control file (`CONTROL_JSON`, default `~/.hermes-desktop/control.json`) is absent it tells you Desktop isn't
 running and exits.
 
 ```bash

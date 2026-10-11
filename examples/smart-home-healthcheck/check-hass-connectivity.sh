@@ -18,7 +18,7 @@
 # Usage:
 #   export HASS_BASE_URL="http://homeassistant.local:8123"
 #   export HASS_TOKEN="…"     # long-lived access token — never commit it
-#   bash examples/home-assistant-healthcheck/check-hass-connectivity.sh
+#   bash examples/smart-home-healthcheck/check-hass-connectivity.sh
 #
 # Environment variables:
 #   HASS_BASE_URL   Base URL of the HA instance (no trailing /api). REQUIRED.

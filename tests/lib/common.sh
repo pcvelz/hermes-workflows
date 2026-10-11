@@ -2,7 +2,7 @@
 # tests/lib/common.sh — shared helpers for the hermes-workflows test harness.
 #
 # Sourced by every tests/<layer>/*.sh script. Provides:
-#   - REPO_ROOT resolution (portable, no /Users/* hard-coding)
+#   - REPO_ROOT resolution (portable, no hard-coded home paths)
 #   - [PASS]/[FAIL]/[SKIP] reporting with running counters
 #   - Colorized output that degrades to plain text when not a TTY
 #   - Tool-presence detection that maps "missing optional tool" -> SKIP

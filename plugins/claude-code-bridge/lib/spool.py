@@ -15,11 +15,15 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import config
+from . import chat_hooks, config
 
 logger = logging.getLogger("claude_code_bridge")
 
 _CID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# The Stop hook's per-turn reply-guard nudge count (``{"nudges": N}``). The hook owns it; the worker
+# resets it when a new turn is injected. Read by name in stop_hook.py: keep the two in step.
+REPLY_GUARD_STATE = "reply_guard_state.json"
 
 STATE_DEFAULTS: dict[str, Any] = {
     "session_id": None,
@@ -115,6 +119,30 @@ def save_state(cfg: dict[str, Any], cid: str, state: dict[str, Any]) -> None:
     _atomic_write(path, json.dumps(state, ensure_ascii=False, indent=2))
 
 
+def reset_reply_guard_count(cfg: dict[str, Any], cid: str) -> None:
+    """Zero the Stop hook's reply-guard nudge count for the channel. Called when a new turn is injected."""
+    _atomic_write(channel_dir(cfg, cid) / REPLY_GUARD_STATE, json.dumps({"nudges": 0}))
+
+
+def reset_chat_turn(cfg: dict[str, Any], cid: str) -> None:
+    """Forget the chat-via-hooks per-turn state (sent and block counts) for the channel. Called when a new turn is injected."""
+    (channel_dir(cfg, cid) / chat_hooks.TURN_FILE).unlink(missing_ok=True)
+
+
+# Present while the channel's current turn is an operator debrief. The Stop hook (stop_hook.py) and the send script
+# (chat_send.py) read it by name: keep the three in step.
+DEBRIEF_STATE = "debrief.json"
+
+
+def set_debrief(cfg: dict[str, Any], cid: str, on: bool) -> None:
+    """Mark (or unmark) the channel's current turn as an operator debrief."""
+    path = channel_dir(cfg, cid) / DEBRIEF_STATE
+    if on:
+        _atomic_write(path, json.dumps({"debrief": True}))
+    else:
+        path.unlink(missing_ok=True)
+
+
 def put_reply(cfg: dict[str, Any], cid: str, reply: dict[str, Any]) -> Path:
     """Write ``reply`` back to ``outbox/`` so a failed post is retried on a later tick."""
     path = _unique_json_path(channel_dir(cfg, cid) / "outbox")
@@ -122,11 +150,25 @@ def put_reply(cfg: dict[str, Any], cid: str, reply: dict[str, Any]) -> Path:
     return path
 
 
+def is_notice(path: Path) -> bool:
+    """True for an outbox item marked ``"notice": true`` (an instant post, not a reply)."""
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(data, dict) and data.get("notice") is True
+
+
 def take_reply(cfg: dict[str, Any], cid: str) -> dict[str, Any] | None:
-    """Pop the oldest ``outbox/*.json`` reply, or return None when there is none."""
+    """Pop the oldest ``outbox/*.json`` reply, or return None when there is none.
+
+    Notices (``"notice": true``) are skipped; they are posted by the worker, not taken as replies.
+    """
     outbox = channel_dir(cfg, cid) / "outbox"
     for path in sorted(outbox.glob("*.json"), key=lambda p: (len(p.stem), p.stem)):
         try:
+            if is_notice(path):
+                continue
             return pop(path)
         except FileNotFoundError:
             continue

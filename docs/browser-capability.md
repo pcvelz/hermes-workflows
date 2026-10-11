@@ -259,6 +259,27 @@ deliberately rather than by default.
 
 ---
 
+## Anti-bot / user agent
+
+What was checked: a third-party, bot-protected-looking site was loaded through the persistent
+CDP Chrome in a fresh browser context. It returned HTTP 200 with real content, and
+`navigator.webdriver` was `false`, even though the stock user agent still contains
+`HeadlessChrome`. A plain HTTP client sending no User-Agent header got HTTP 403 from the same
+site, while a normal desktop Chrome UA got 200. So the site filters on the user agent, but the
+stock headless browser UA was not what blocked it in that test.
+
+How the service flags address this: the CDP service launches with `--headless`,
+`--no-sandbox`, `--disable-gpu` and the CDP port flags only. It does not override the user
+agent and does not add `--disable-blink-features=AutomationControlled`, so the browser
+advertises itself as stock headless Chrome. If a site blocks the browser, first confirm that
+the user agent or `navigator.webdriver` is the cause (compare a browser request against the
+same URL with a desktop UA). Only then consider a launch-flag change: a `--user-agent=` value
+that matches the installed Chrome major version, or `--disable-blink-features=AutomationControlled`.
+A hard IP block or a JavaScript challenge that needs a headed browser is not solved by flags;
+that is the Camoufox escalation case above.
+
+---
+
 ## Resource cost
 
 A persistent headless Chrome sitting idle with a blank/parked tab costs roughly **300–500 MB**

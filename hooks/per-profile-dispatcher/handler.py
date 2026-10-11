@@ -98,7 +98,7 @@ FAILURE_THRESHOLD: int = 3
 # Profiles managed by this dispatcher.
 # Edit to match your deployed profile names; these must correspond to
 # $HERMES_HOME/profiles/<name>/ directories.
-PROFILES: list[str] = ["orchestrator", "coder", "planner", "qa-tester"]
+PROFILES: list[str] = ["orchestrator", "coding", "planner", "qa-tester"]
 
 
 # =============================================================================
@@ -241,7 +241,7 @@ async def dispatch_task(profile: str, task_id: str) -> bool:
     tick loop will bump fail_count).
 
     Args:
-        profile:  Name of the hermes profile to run (e.g. "coder").
+        profile:  Name of the hermes profile to run (e.g. "coding").
         task_id:  Identifier of the task to assign.
 
     Returns:

@@ -75,39 +75,39 @@ class TestWorkerStale(unittest.TestCase):
     NOW = 1_000_000.0
 
     def test_healthy_recent_heartbeat(self):
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - 100, last_heartbeat=self.NOW - 10)
         self.assertIsNone(H.worker_is_stale(w, self.NOW))
 
     def test_stale_heartbeat(self):
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - 1000,
                    last_heartbeat=self.NOW - (H.HEARTBEAT_STALE_SECONDS + 1))
         self.assertEqual(H.worker_is_stale(w, self.NOW), "heartbeat")
 
     def test_startup_never_heartbeat(self):
         # Spawned, no heartbeat ever, past the startup grace window.
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - (H.STARTUP_GRACE_SECONDS + 1),
                    last_heartbeat=None)
         self.assertEqual(H.worker_is_stale(w, self.NOW), "startup")
 
     def test_startup_within_grace_is_healthy(self):
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - (H.STARTUP_GRACE_SECONDS - 5),
                    last_heartbeat=None)
         self.assertIsNone(H.worker_is_stale(w, self.NOW))
 
     def test_runtime_exceeded_with_fresh_heartbeat(self):
         # Heartbeat is fresh (so check 1 passes) but total runtime exceeded.
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - (H.MAX_RUNTIME_SECONDS + 1),
                    last_heartbeat=self.NOW - 5)
         self.assertEqual(H.worker_is_stale(w, self.NOW), "runtime")
 
     def test_heartbeat_priority_over_runtime(self):
         # Both heartbeat-stale AND runtime-exceeded: heartbeat wins (priority).
-        w = Worker(profile="coder", task_id="t1",
+        w = Worker(profile="coding", task_id="t1",
                    started_at=self.NOW - (H.MAX_RUNTIME_SECONDS + 1),
                    last_heartbeat=self.NOW - (H.HEARTBEAT_STALE_SECONDS + 1))
         self.assertEqual(H.worker_is_stale(w, self.NOW), "heartbeat")
@@ -152,12 +152,12 @@ class TestCooldownRemaining(unittest.TestCase):
 
 class TestIdleProfiles(unittest.TestCase):
     def test_all_idle(self):
-        profiles = ["orchestrator", "coder", "planner"]
+        profiles = ["orchestrator", "coding", "planner"]
         self.assertEqual(H.idle_profiles(profiles, []), profiles)
 
     def test_excludes_busy_preserves_order(self):
-        profiles = ["orchestrator", "coder", "planner", "qa-tester"]
-        workers = [Worker(profile="coder", task_id="t1")]
+        profiles = ["orchestrator", "coding", "planner", "qa-tester"]
+        workers = [Worker(profile="coding", task_id="t1")]
         self.assertEqual(
             H.idle_profiles(profiles, workers),
             ["orchestrator", "planner", "qa-tester"],
@@ -168,10 +168,10 @@ class TestPickTaskFor(unittest.TestCase):
     def test_prefers_assigned_fifo(self):
         ready = [
             task("t1", TaskState.READY, assignee=None),
-            task("t2", TaskState.READY, assignee="coder"),
-            task("t3", TaskState.READY, assignee="coder"),
+            task("t2", TaskState.READY, assignee="coding"),
+            task("t3", TaskState.READY, assignee="coding"),
         ]
-        chosen = H.pick_task_for("coder", ready)
+        chosen = H.pick_task_for("coding", ready)
         self.assertEqual(chosen.id, "t2")  # first assignee match (FIFO)
 
     def test_falls_back_to_unassigned(self):
@@ -179,18 +179,18 @@ class TestPickTaskFor(unittest.TestCase):
             task("t1", TaskState.READY, assignee="planner"),
             task("t2", TaskState.READY, assignee=None),
         ]
-        chosen = H.pick_task_for("coder", ready)
+        chosen = H.pick_task_for("coding", ready)
         self.assertEqual(chosen.id, "t2")
 
     def test_none_when_empty(self):
-        self.assertIsNone(H.pick_task_for("coder", []))
+        self.assertIsNone(H.pick_task_for("coding", []))
 
 
 class TestStateFingerprint(unittest.TestCase):
     def test_order_insensitive(self):
         t1 = task("a", TaskState.READY)
         t2 = task("b", TaskState.DONE)
-        w1 = Worker(profile="coder", task_id="a")
+        w1 = Worker(profile="coding", task_id="a")
         fp1 = H.state_fingerprint([t1, t2], [w1])
         fp2 = H.state_fingerprint([t2, t1], [w1])
         self.assertEqual(fp1, fp2)
@@ -206,7 +206,7 @@ class TestStateFingerprint(unittest.TestCase):
     def test_changes_on_worker_change(self):
         tasks = [task("a", TaskState.IN_PROGRESS)]
         fp_no_worker = H.state_fingerprint(tasks, [])
-        fp_worker = H.state_fingerprint(tasks, [Worker(profile="coder", task_id="a")])
+        fp_worker = H.state_fingerprint(tasks, [Worker(profile="coding", task_id="a")])
         self.assertNotEqual(fp_no_worker, fp_worker)
 
     def test_stable_hex_length(self):

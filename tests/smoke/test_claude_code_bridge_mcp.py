@@ -124,12 +124,15 @@ class RenderTests(_Base):
 
 
 class ArgvTests(_Base):
-    def test_no_mcp_config_means_no_mcp_flags(self):
+    def test_no_mcp_config_still_runs_strict_with_an_empty_server_map(self):
+        # No servers: the session still gets --strict-mcp-config, so account/user/plugin MCP never loads.
         self.cfg["mcp_servers"] = {}
         session.prepare_dir(self.cfg, CID)
         argv = session.launch_argv(self.cfg, CID, self.state())
-        self.assertNotIn("--mcp-config", argv)
-        self.assertNotIn("--strict-mcp-config", argv)
+        self.assertEqual(argv[argv.index("--mcp-config") + 1], str(self.chan / ".mcp.json"))
+        self.assertIn("--strict-mcp-config", argv)
+        doc = json.loads((self.chan / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertEqual(doc, {"mcpServers": {}})
         allowed = argv[argv.index("--allowedTools") + 1]
         self.assertEqual(allowed, ",".join(config.DEFAULTS["allowed_tools"]))
 
@@ -148,21 +151,88 @@ class ArgvTests(_Base):
         with self.assertLogs("claude_code_bridge", level="WARNING"):
             session.prepare_dir(self.cfg, CID)
             argv = session.launch_argv(self.cfg, CID, self.state())
-        self.assertNotIn("--mcp-config", argv)
-        self.assertNotIn("--strict-mcp-config", argv)
+        self.assertEqual(argv[argv.index("--mcp-config") + 1], str(self.chan / ".mcp.json"))
+        self.assertIn("--strict-mcp-config", argv)
         self.assertNotIn("mcp__composio_gmail__GMAIL_FETCH_EMAILS", argv[argv.index("--allowedTools") + 1])
         self.assertEqual(argv[argv.index("--session-id") + 1], self.state()["session_id"])
 
     def test_prepare_dir_denies_model_read_of_mcp_file(self):
         session.prepare_dir(self.cfg, CID)
         settings = json.loads((self.chan / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(settings["permissions"], {"deny": ["Read(./.mcp.json)"]})
+        self.assertEqual(
+            settings["permissions"],
+            {"deny": ["Read(./.mcp.json)", f"Read(/{self.chan}/.mcp.json)"]},
+        )
 
-    def test_prepare_dir_without_mcp_has_no_permissions_block(self):
+    def test_prepare_dir_without_mcp_still_denies_model_read_of_mcp_file(self):
         self.cfg["mcp_servers"] = {}
         session.prepare_dir(self.cfg, CID)
         settings = json.loads((self.chan / ".claude" / "settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(set(settings), {"hooks"})
+        self.assertEqual(
+            settings["permissions"],
+            {"deny": ["Read(./.mcp.json)", f"Read(/{self.chan}/.mcp.json)"]},
+        )
+
+
+BROWSER_TOOL = "mcp__browser__browser_snapshot"
+
+
+class StdioAndChannelMcpTests(_Base):
+    """stdio server specs (command/args/env) and per-channel mcp_servers / mcp_allowed_tools."""
+
+    def stdio_spec(self):
+        return {
+            "type": "stdio",
+            "command": "npx",
+            "args": ["@playwright/mcp@latest", "--cdp-endpoint", "http://127.0.0.1:9222"],
+            "env": {"BROWSER_TOKEN": "keyfile:composio-gmail-mcp/api-key"},
+        }
+
+    def test_global_stdio_server_is_rendered_with_args_and_resolved_env(self):
+        self.cfg["mcp_servers"]["browser"] = self.stdio_spec()
+        d = self.channel_dir()
+        self.assertTrue(mcp.render(self.cfg, d))
+        doc = json.loads((d / ".mcp.json").read_text(encoding="utf-8"))
+        browser = doc["mcpServers"]["browser"]
+        self.assertEqual(browser["type"], "stdio")
+        self.assertEqual(browser["command"], "npx")
+        self.assertEqual(browser["args"], ["@playwright/mcp@latest", "--cdp-endpoint", "http://127.0.0.1:9222"])
+        self.assertEqual(browser["env"], {"BROWSER_TOKEN": TEST_KEY})
+        self.assertEqual(doc["mcpServers"]["composio_gmail"]["headers"], {"x-api-key": TEST_KEY})
+
+    def test_channel_mcp_servers_merge_into_global_by_name(self):
+        self.cfg["channels"] = {CID: {"mcp_servers": {"browser": self.stdio_spec()},
+                                      "mcp_allowed_tools": [BROWSER_TOOL]}}
+        eff = config.for_channel(self.cfg, CID)
+        self.assertEqual(set(eff["mcp_servers"]), {"composio_gmail", "browser"})
+        self.assertEqual(eff["mcp_servers"]["browser"]["command"], "npx")
+        self.assertEqual(eff["mcp_allowed_tools"], TOOLS + [BROWSER_TOOL])
+        # the global config is not mutated
+        self.assertEqual(set(self.cfg["mcp_servers"]), {"composio_gmail"})
+        self.assertEqual(self.cfg["mcp_allowed_tools"], TOOLS)
+
+    def test_channel_server_is_rendered_into_its_channel_file_only(self):
+        self.cfg["channels"] = {CID: {"mcp_servers": {"browser": self.stdio_spec()}}}
+        session.prepare_dir(self.cfg, CID)
+        doc = json.loads((self.chan / ".mcp.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(doc["mcpServers"]), {"composio_gmail", "browser"})
+        self.assertEqual(doc["mcpServers"]["browser"]["env"], {"BROWSER_TOKEN": TEST_KEY})
+        other = config.for_channel(self.cfg, "other-chan")
+        self.assertEqual(set(other["mcp_servers"]), {"composio_gmail"})
+
+    def test_channel_allowed_tools_reach_the_session_argv(self):
+        self.cfg["channels"] = {CID: {"mcp_servers": {"browser": self.stdio_spec()},
+                                      "mcp_allowed_tools": [BROWSER_TOOL]}}
+        session.prepare_dir(self.cfg, CID)
+        argv = session.launch_argv(self.cfg, CID, self.state())
+        allowed = argv[argv.index("--allowedTools") + 1].split(",")
+        self.assertIn(BROWSER_TOOL, allowed)
+        self.assertIn(TOOLS[0], allowed)
+
+    def test_channel_server_changes_the_launch_fingerprint(self):
+        before = session.fingerprint(self.cfg, CID)
+        self.cfg["channels"] = {CID: {"mcp_servers": {"browser": self.stdio_spec()}}}
+        self.assertNotEqual(session.fingerprint(self.cfg, CID), before)
 
 
 if __name__ == "__main__":

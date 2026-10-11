@@ -1,5 +1,5 @@
 ---
-name: home-assistant-healthcheck
+name: smart-home-healthcheck
 description: "Read-only Home Assistant health check — surface errors and stuck entities, never write to HA."
 ---
 

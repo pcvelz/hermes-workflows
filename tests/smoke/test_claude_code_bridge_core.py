@@ -4,6 +4,7 @@ No test starts Claude Code or touches the network. Temp directories stand in for
 HERMES_HOME and the channel home; the Mattermost REST call is mocked.
 """
 
+import copy
 import json
 import logging
 import os
@@ -123,6 +124,129 @@ class ConfigTests(_TempDirCase):
             which.assert_called_once_with("claude")
         with mock.patch("lib.config.shutil.which", return_value=None):
             self.assertIsNone(config.claude_bin({"claude_bin": ""}))
+
+
+class ChannelModelEffortTests(unittest.TestCase):
+    """channels.<cid>.model / effort: replace the global launch model / effort for that channel only."""
+
+    def test_override_replaces_model_and_effort(self):
+        cfg = dict(config.DEFAULTS, channels={"chan-1": {"model": "sonnet", "effort": "high"}})
+        eff = config.for_channel(cfg, "chan-1")
+        self.assertEqual(eff["model"], "sonnet")
+        self.assertEqual(eff["effort"], "high")
+
+    def test_empty_or_non_string_override_keeps_global(self):
+        cfg = dict(config.DEFAULTS, channels={"chan-1": {"model": "", "effort": None}})
+        eff = config.for_channel(cfg, "chan-1")
+        self.assertEqual(eff["model"], config.DEFAULTS["model"])
+        self.assertEqual(eff["effort"], config.DEFAULTS["effort"])
+        cfg["channels"] = {"chan-1": {"model": 7, "effort": ["high"]}}
+        eff = config.for_channel(cfg, "chan-1")
+        self.assertEqual(eff["model"], config.DEFAULTS["model"])
+        self.assertEqual(eff["effort"], config.DEFAULTS["effort"])
+
+    def test_other_channel_keeps_global(self):
+        cfg = dict(config.DEFAULTS, channels={"chan-1": {"model": "sonnet", "effort": "high"}})
+        eff = config.for_channel(cfg, "chan-2")
+        self.assertEqual(eff["model"], config.DEFAULTS["model"])
+        self.assertEqual(eff["effort"], config.DEFAULTS["effort"])
+
+
+class ReplyGuardConfigTests(unittest.TestCase):
+    """reply_guard: off by default; a channel's keys merge over the global block, like browser_guard."""
+
+    def test_default_is_empty_so_guard_is_off(self):
+        self.assertEqual(config.DEFAULTS["reply_guard"], {})
+
+    def test_channel_keys_merge_over_global_and_keep_the_rest(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["reply_guard"] = {"patterns": ["(?i)cannot check"], "nudge": "GLOBAL", "max_nudges": 2}
+        cfg["channels"] = {"chan-1": {"reply_guard": {"nudge": "CHANNEL", "max_nudges": 5}}}
+        eff = config.for_channel(cfg, "chan-1")["reply_guard"]
+        self.assertEqual(eff, {"patterns": ["(?i)cannot check"], "nudge": "CHANNEL", "max_nudges": 5})
+
+    def test_other_channel_keeps_global_reply_guard(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["reply_guard"] = {"patterns": ["(?i)cannot check"]}
+        cfg["channels"] = {"chan-1": {"reply_guard": {"patterns": ["(?i)otra"]}}}
+        self.assertEqual(config.for_channel(cfg, "chan-2")["reply_guard"], {"patterns": ["(?i)cannot check"]})
+
+    def test_channel_block_without_global_still_enables_guard(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["channels"] = {"chan-1": {"reply_guard": {"patterns": ["(?i)cannot check"]}}}
+        self.assertEqual(config.for_channel(cfg, "chan-1")["reply_guard"], {"patterns": ["(?i)cannot check"]})
+
+    def test_global_defaults_are_not_mutated_by_channel_merge(self):
+        cfg = copy.deepcopy(config.DEFAULTS)
+        cfg["reply_guard"] = {"patterns": ["(?i)cannot check"]}
+        cfg["channels"] = {"chan-1": {"reply_guard": {"nudge": "X"}}}
+        config.for_channel(cfg, "chan-1")
+        self.assertNotIn("nudge", cfg["reply_guard"])
+
+
+class ChannelSoulTests(_TempDirCase):
+    """channels.<cid>.soul_file: appended to that channel's append_system_prompt only."""
+
+    GLOBAL = "GLOBAL PROMPT"
+
+    def setUp(self):
+        super().setUp()
+        self.hermes_home = self.root / "hermes-home"
+        self.hermes_home.mkdir()
+        self.user_home = self.root / "user-home"
+        self.user_home.mkdir()
+        self._env = mock.patch.dict(
+            os.environ, {"HERMES_HOME": str(self.hermes_home), "HOME": str(self.user_home)}
+        )
+        self._env.start()
+        self.cfg = dict(config.DEFAULTS, append_system_prompt=self.GLOBAL)
+
+    def tearDown(self):
+        self._env.stop()
+        super().tearDown()
+
+    def _channel(self, cid="chan-1", **override):
+        self.cfg["channels"] = {cid: override}
+        return config.for_channel(self.cfg, cid)
+
+    def test_soul_is_appended_after_global_and_channel_prompt(self):
+        (self.hermes_home / "soul.md").write_text(
+            'Soul line one.\n\nSoul line "two" with quotes.\n', encoding="utf-8"
+        )
+        eff = self._channel(append_system_prompt="CHANNEL PROMPT", soul_file="soul.md")
+        self.assertEqual(
+            eff["append_system_prompt"],
+            f'{self.GLOBAL}\n\nCHANNEL PROMPT\n\nSoul line one.\n\nSoul line "two" with quotes.',
+        )
+
+    def test_soul_without_channel_prompt_follows_global_prompt(self):
+        (self.hermes_home / "soul.md").write_text("Only soul.\n", encoding="utf-8")
+        eff = self._channel(soul_file="soul.md")
+        self.assertEqual(eff["append_system_prompt"], f"{self.GLOBAL}\n\nOnly soul.")
+
+    def test_other_channels_do_not_get_the_soul(self):
+        (self.hermes_home / "soul.md").write_text("Only soul.\n", encoding="utf-8")
+        self._channel(soul_file="soul.md")
+        eff = config.for_channel(self.cfg, "chan-2")
+        self.assertEqual(eff["append_system_prompt"], self.GLOBAL)
+
+    def test_tilde_expands_to_user_home(self):
+        (self.user_home / "souls").mkdir()
+        (self.user_home / "souls" / "chan.md").write_text("Home soul.\n", encoding="utf-8")
+        eff = self._channel(soul_file="~/souls/chan.md")
+        self.assertEqual(eff["append_system_prompt"], f"{self.GLOBAL}\n\nHome soul.")
+
+    def test_missing_soul_file_warns_and_keeps_prompt_without_soul(self):
+        with self.assertLogs("claude_code_bridge", level="WARNING") as logs:
+            eff = self._channel(append_system_prompt="CHANNEL PROMPT", soul_file="missing.md")
+        self.assertEqual(eff["append_system_prompt"], f"{self.GLOBAL}\n\nCHANNEL PROMPT")
+        self.assertTrue(any("soul_file" in line for line in logs.output))
+
+    def test_unreadable_soul_file_warns_and_does_not_raise(self):
+        (self.hermes_home / "soul-dir").mkdir()
+        with self.assertLogs("claude_code_bridge", level="WARNING"):
+            eff = self._channel(soul_file="soul-dir")
+        self.assertEqual(eff["append_system_prompt"], self.GLOBAL)
 
 
 class SpoolTests(_TempDirCase):

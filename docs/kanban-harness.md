@@ -62,16 +62,19 @@ profile, so a profile that shares the user's name would get an agent spawned for
 
 ```yaml
 roles:
-  coding:    {profiles: [coder]}
+  coding:    {profiles: [coding]}
   qa:        {profiles: [qa-tester]}
   user:      {human: true, assignee: user}   # the person; must NOT be a Hermes profile
-  # planner: {}          # no `profiles`: a single profile named as its own role
+  planner:   {profiles: [planner]}   # creates/links the children of a cut; hands them to lanes
 
 transitions:
   - {from_role: coding, action: handoff, to_role: qa,   status: ready}
   - {from_role: qa,     action: handoff, to_role: user, status: scheduled}  # user_review
   - {from_role: coding, action: create}                # fan-out
   - {from_role: coding, action: link}
+  - {from_role: planner, action: create, via: [tool]}  # cut children (tool only)
+  - {from_role: planner, action: link, via: [tool]}
+  - {from_role: planner, action: handoff, to_role: coding, status: ready}
   # - {from_role: coding, action: create, via: [tool, shell]}
 
 always_allow:            # open to every profile: reading and talking on the board
@@ -139,7 +142,7 @@ card and blocks it for the human) is replaced by a `handoff` row to the human ro
 hand-off parks the task itself for the human.
 
 **Human completion in the run list.** When the human completes a parked task, the
-hermes-agent run list shows a zero-length run under the human's name (e.g. `@peter 0s`).
+hermes-agent run list shows a zero-length run under the human's name (e.g. `@alice 0s`).
 That is the human's action, not a worker run. Labelling it would need a hermes-agent
 display patch.
 

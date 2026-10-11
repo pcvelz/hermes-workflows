@@ -130,9 +130,22 @@ plugins:
     - memory-guard
     - audit-log
     - policy-gate
+    - mattermost-auto-vacate   # on by default: leaves a channel once the bot is its only human-free member
     # - claude-code-bridge   # optional: uncomment together with claude_code_bridge.enabled: true
     # - skill-router
     # - tooling-steering
+
+# ---------------------------------------------------------------------------
+# mattermost-auto-vacate — the bot leaves a Mattermost channel after a grace period once
+# no human is left in it (channels are never archived; only the bot's membership is removed).
+# The values below are the defaults; the block may be omitted. Plugin: plugins/mattermost-auto-vacate.
+# ---------------------------------------------------------------------------
+mattermost_auto_vacate:
+  enabled: true
+  interval_s: 300                # sweep period, seconds
+  grace_s: 600                   # alone this long across sweeps before leaving (protects channels being set up)
+  exclude: [town-square, off-topic]   # internal channel names never left
+  dry_run: false                 # true = log "would leave" only
 
 # ---------------------------------------------------------------------------
 # claude-code-bridge — OPTIONAL mode of this chat role (disabled by default).
@@ -166,12 +179,10 @@ claude_code_bridge:
   poll_seconds: 2                # worker loop interval, in seconds
   # A message matching one of these case-insensitive regexes is NOT bridged: Hermes answers it
   # (investigations go to the Hermes profile, which fans out on the configured backend).
+  # The default list is English. Add one regex per trigger word of your own language here.
   passthrough_patterns:
     - '\binvestigat'
-    - '\binvestigar'
-    - '\binvestigaci[oó]n'
     - '\bi want to research\b'
-    - '\bquiero investigar\b'
     - '\bdeep research\b'
   # Optional MCP servers for the bridge's Claude Code session (empty = none). Rendered per channel
   # into <channel-dir>/.mcp.json (0600) and loaded with --strict-mcp-config. A value

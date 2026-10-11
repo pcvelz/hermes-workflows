@@ -26,18 +26,18 @@
 #                              Sets a placeholder token automatically.
 #
 # Offline proof (no HA, no real token):
-#   HASS_MOCK=1 bash examples/home-assistant-healthcheck/run.sh
+#   HASS_MOCK=1 bash examples/smart-home-healthcheck/run.sh
 #
 # Broker (vault-resolved token):
 #   export HASS_BASE_URL="http://homeassistant.local:8123"
-#   HASS_VAULT=seckit bash examples/home-assistant-healthcheck/run.sh
+#   HASS_VAULT=seckit bash examples/smart-home-healthcheck/run.sh
 #   HASS_VAULT=op HASS_OP_REF="op://Hermes/HA Token/credential" \
-#     bash examples/home-assistant-healthcheck/run.sh
+#     bash examples/smart-home-healthcheck/run.sh
 #
 # Direct token (fallback, less preferred):
 #   export HASS_BASE_URL="http://homeassistant.local:8123"
 #   export HASS_TOKEN="your-long-lived-token"   # never commit a real token
-#   bash examples/home-assistant-healthcheck/run.sh
+#   bash examples/smart-home-healthcheck/run.sh
 # =============================================================================
 
 set -euo pipefail
@@ -68,7 +68,7 @@ for f in "$CONNECTIVITY_SCRIPT" "$BROKER_SCRIPT"; do
   if [[ ! -f "$f" ]]; then
     echo "ERROR: required script not found: $f" >&2
     echo "  Run this script from the repo root:" >&2
-    echo "    bash examples/home-assistant-healthcheck/run.sh" >&2
+    echo "    bash examples/smart-home-healthcheck/run.sh" >&2
     exit 1
   fi
 done
@@ -98,7 +98,7 @@ if [[ "$MOCK" == "1" ]]; then
   echo "=================================================================="
   echo "  Mock run complete."
   echo "  To run against a real HA instance, set HASS_BASE_URL + a token"
-  echo "  (see examples/home-assistant-healthcheck/README.md)."
+  echo "  (see examples/smart-home-healthcheck/README.md)."
   echo "=================================================================="
   exit 0
 fi
@@ -160,18 +160,18 @@ else
   echo "  You need a Home Assistant long-lived access token.  Provide it one of:" >&2
   echo >&2
   echo "  Preferred — broker resolves the token from your vault (token never printed):" >&2
-  echo "    HASS_VAULT=seckit bash examples/home-assistant-healthcheck/run.sh" >&2
+  echo "    HASS_VAULT=seckit bash examples/smart-home-healthcheck/run.sh" >&2
   echo "    HASS_VAULT=op HASS_OP_REF=\"op://Hermes/HA Token/credential\" bash ..." >&2
   echo >&2
   echo "  Fallback — inject the token directly (scrubbed from all output):" >&2
   echo "    export HASS_TOKEN=\"your-long-lived-access-token\"" >&2
-  echo "    bash examples/home-assistant-healthcheck/run.sh" >&2
+  echo "    bash examples/smart-home-healthcheck/run.sh" >&2
   echo >&2
   echo "  Offline proof (no real HA or token needed):" >&2
-  echo "    HASS_MOCK=1 bash examples/home-assistant-healthcheck/run.sh" >&2
+  echo "    HASS_MOCK=1 bash examples/smart-home-healthcheck/run.sh" >&2
   echo >&2
   echo "  Create a long-lived token in HA: Profile → Security → Long-lived access tokens." >&2
-  echo "  See examples/home-assistant-healthcheck/SECURE-SECRETS.md for the vault walkthrough." >&2
+  echo "  See examples/smart-home-healthcheck/SECURE-SECRETS.md for the vault walkthrough." >&2
   PREREQ_FAIL=1
 fi
 
@@ -208,7 +208,7 @@ if [[ -n "${HASS_TOKEN:-}" ]]; then
     echo
     echo "ERROR: connectivity probe failed (exit ${EXIT_CODE})." >&2
     echo "  Check that HASS_BASE_URL is correct and the token is valid." >&2
-    echo "  See examples/home-assistant-healthcheck/README.md for troubleshooting." >&2
+    echo "  See examples/smart-home-healthcheck/README.md for troubleshooting." >&2
     exit "$EXIT_CODE"
   fi
 else
@@ -247,7 +247,7 @@ if [[ "$BROKER_EXIT" -eq 0 ]]; then
   echo "=================================================================="
   echo "  Health-check complete."
   echo "  Review the findings above."
-  echo "  See examples/home-assistant-healthcheck/README.md for next steps."
+  echo "  See examples/smart-home-healthcheck/README.md for next steps."
   echo "=================================================================="
   exit 0
 else

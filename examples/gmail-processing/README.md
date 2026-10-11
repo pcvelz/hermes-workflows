@@ -10,7 +10,7 @@
 > Nothing here sends, modifies, labels, or deletes mail.
 
 This is a second "eat our own dog food" target, alongside
-[`home-assistant-healthcheck`](../home-assistant-healthcheck/). A common, boring,
+[`smart-home-healthcheck`](../smart-home-healthcheck/). A common, boring,
 useful thing an always-on agent can do is watch a mailbox for a class of message
 you care about — invoices, order confirmations, a specific sender — pull out the
 fields that matter, and tell you, without you living in your inbox.
@@ -184,7 +184,7 @@ stripped to make it a safe, generic POC:
   example only retrieves and summarizes. Acting on mail contents is a separate,
   higher-trust workflow.
 - **All personal coupling.** No real email address, no real user id, no real key,
-  no `/Users/...` paths. Everything is an environment variable with a placeholder
+  no hard-coded home paths. Everything is an environment variable with a placeholder
   default, and the credential flows through the vault + broker pattern.
 
 The clean, generic parts were kept: the server-side query prefilter, the

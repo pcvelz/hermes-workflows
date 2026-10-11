@@ -1,0 +1,14 @@
+{
+  "audience": "the people in this chat: plain words in their language, no file paths, tool names or technical terms",
+  "ask_denied": "There is no one at this terminal: you are attached to a chat. To ask the user something, send one question with {send} and end your turn; the answer arrives as your next message. Write for {audience}.",
+  "stop_nothing_sent": "Your turn is ending but nothing was sent to the chat, so the user sees nothing. Send one message now with {send}: what changed and what they will see, or the one question you need answered. No promises of later work, no menu of options. Then stop.",
+  "send_refused": "Not sent: {reason}. Rewrite it for {audience} and send again.",
+  "prompt_context": "[chat · {sender} · {time}] Message from the chat. Reply with {send} when you're done. If the message names something that doesn't exist, check the closest match yourself, then confirm it in one short question (\"Do you mean X?\") before acting on it.",
+  "refuse_patterns": [
+    {"pattern": "(?i)try again later", "reason": "it gives up"},
+    {"pattern": "(?i)i('ll| will) (get back|let you know)", "reason": "it promises later work"},
+    {"pattern": "(?i)\\bi('ll| will) (pass|tell|let) (it|him|her|them)\\b", "reason": "it promises later work"},
+    {"pattern": "(?i)which (option|one) do you prefer", "reason": "it offers a menu"}
+  ],
+  "max_stop_blocks": 2
+}
