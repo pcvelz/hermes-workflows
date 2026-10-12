@@ -22,6 +22,7 @@ from . import config, poster, spool
 logger = logging.getLogger("claude_code_bridge")
 
 SEND_TIMEOUT_S = 60
+DEFAULT_PLATFORM = "mattermost"
 ELLIPSIS = "…"
 
 _gateway: Any = None
@@ -65,8 +66,10 @@ def send(cfg: dict[str, Any], cid: str, root: Any, text: str) -> bool:
     body = (text or "").strip()
     if not body:
         return False
-    platform = spool.load_state(cfg, cid).get("platform")
-    adapter = _adapter(platform) if platform else None
+    # A channel fed by a watcher has no recorded platform: Mattermost is the only one with a REST fallback,
+    # so an unrecorded platform is treated as Mattermost rather than held until the wait budget parks it.
+    platform = spool.load_state(cfg, cid).get("platform") or DEFAULT_PLATFORM
+    adapter = _adapter(platform)
     max_chars = int(config.for_channel(cfg, cid).get("max_reply_chars", 15000))
     if adapter is None or _loop is None:
         if platform == "mattermost":

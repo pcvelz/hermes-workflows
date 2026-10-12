@@ -13,6 +13,7 @@ import logging
 import re
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import datetime
 from typing import Any, Callable
@@ -363,6 +364,67 @@ def _recover_inflight(cfg: dict[str, Any], cid: str, state: dict[str, Any], now:
     spool.enqueue(cfg, cid, inflight, name="0")  # sorts before every queued item: it was the oldest
 
 
+BACKEND_PROBE_URL = "http://127.0.0.1:8003/v1/models"  # the background tier Claude Code runs on; overridable
+BACKEND_PROBE_TIMEOUT_S = 3
+
+
+def _backend_up(cfg: dict[str, Any]) -> bool:
+    """True when the model backend answers its model list. Any error counts as down."""
+    url = str(cfg.get("backend_probe_url") or BACKEND_PROBE_URL)
+    try:
+        with urllib.request.urlopen(url, timeout=BACKEND_PROBE_TIMEOUT_S) as resp:
+            return 200 <= resp.status < 300
+    except Exception:  # refused, timed out, HTTP error: all mean the backend cannot serve a turn now
+        return False
+
+
+def _recover_backend_outage(cfg: dict[str, Any], cid: str, state: dict[str, Any], now: float) -> None:
+    """A turn in flight across a backend outage is redelivered once after the backend is back.
+
+    The Claude Code session can survive an outage with its request hung, so it never goes idle and
+    queued messages wait behind it for the whole wait budget. Once the backend answers again, a
+    turn that was started before the outage and is still in flight gets a fresh session on the same
+    conversation (``--resume``) and its message is injected once more. ``inflight_redelivered_at``
+    guards the second injection, so it never repeats.
+    """
+    down_at = state.get("backend_down_at")
+    if down_at is None or not _backend_up(cfg):
+        return
+    state["backend_down_at"] = None
+    inflight = state.get("inflight")
+    if not inflight or state.get("inflight_redelivered_at") is not None:
+        return
+    if float(inflight.get("ts") or inflight.get("received_at") or 0) > float(down_at):
+        return  # the turn started during the outage: it was never sent to a live backend
+    if session.exists(cfg, cid) and session.is_idle(cfg, cid):
+        return  # idle, not hung: the turn ended without a reply, and a relaunch would only duplicate the message
+    logger.warning("claude-code-bridge: backend back after outage on channel %s with a turn still in flight; "
+                   "relaunching session and redelivering once", cid)
+    session.stop(cfg, cid)
+    state["started_once"] = True
+    if not _start_session(cfg, cid, state, now):
+        return
+    state["inflight_redelivered_at"] = now
+    spool.save_state(cfg, cid, state)
+    if not session.inject(cfg, cid, inject_text(cfg, cid, inflight)):
+        logger.warning("claude-code-bridge: outage redelivery inject failed on channel %s; message re-queued", cid)
+        state["inflight"] = None
+        state["inflight_since"] = None
+        state["inflight_redelivered_at"] = None
+        spool.enqueue(cfg, cid, inflight, name="0")
+
+
+def _note_backend(cfg: dict[str, Any], cid: str, state: dict[str, Any], now: float) -> None:
+    """Record when the backend went down while a turn is in flight; no turn in flight clears the mark."""
+    if not state.get("inflight"):
+        if state.get("backend_down_at") is not None:
+            state["backend_down_at"] = None
+        return
+    if state.get("backend_down_at") is None and not _backend_up(cfg):
+        state["backend_down_at"] = now
+        logger.warning("claude-code-bridge: backend unreachable while a turn is in flight on channel %s", cid)
+
+
 def _post_notices(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, str], Any], now: float) -> None:
     """Post outbox items marked ``"notice": true`` top-level, whether or not a message is in flight.
 
@@ -499,6 +561,7 @@ def _tick_channel(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, st
     if inflight or state.get("blocked") or state.get("blocked_candidate"):
         _check_blocked(cfg, cid, state, now)  # a dialog can only block a turn in flight
         spool.save_state(cfg, cid, state)  # kept even when a later step returns early
+    _note_backend(cfg, cid, state, now)  # a turn in flight across a backend outage is recovered below
 
     # 1-3: collect the reply of the in-flight turn, or enforce the wait budget. The reply guard is not here:
     # the Stop hook blocks a give-up reply before it reaches the outbox (stop_hook.py).
@@ -572,6 +635,11 @@ def _tick_channel(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, st
     # 3b: the in-flight turn's session is gone (machine reboot, tmux server died): resume it once.
     if state.get("inflight") and reply is None and not session.exists(cfg, cid):
         _recover_inflight(cfg, cid, state, now)
+
+    # 3b2: the backend was down during the turn and is back, and the turn is still unfinished: the session
+    # is likely hung on the lost request. Relaunch on the same conversation and redeliver once.
+    if state.get("inflight") and reply is None:
+        _recover_backend_outage(cfg, cid, state, now)
 
     # 3c: a decline note goes in as soon as the session is idle (in flight or not), so the turn ends in chat.
     note = state.get("blocked_note")
