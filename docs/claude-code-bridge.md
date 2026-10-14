@@ -267,6 +267,44 @@ channels:
   pattern that compiles. A channel's keys merge over the global block. An invalid pattern is dropped.
 - **Not covered.** The hook does not block a turn that still has background work running (see Open questions).
 
+## Save-claim guard
+
+A reply can claim something was saved that was never written: the resumed session history can hold an
+earlier false claim, and a prompt rule loses against it. The save-claim guard checks the final reply in the
+same Stop hook, after the reply guard, and blocks a claim that has no write behind it.
+
+```yaml
+channels:
+  "<channel-id>":
+    save_claim_guard: true
+```
+
+- **Default: off.** Like `reply_guard`, it is off unless a channel (or the global `save_claim_guard`) sets it to `true`.
+- **Claim.** The final reply (`last_assistant_message`) matches one of the phrases in `stop_hook.py`
+  (`SAVE_CLAIM_PATTERNS`, case-insensitive): "saved", "stored", "I'll remember", "noted for next time", "in memory",
+  "guardado", "ya está guardado", "en tu memoria", "lo recordaré", "opgeslagen", "onthouden" and similar.
+  A match with a negation in the same clause is not a claim: before the verb ("not saved", "no lo he guardado",
+  "Nothing was saved") or within three words after it ("I have saved nothing", "No se ha guardado nada").
+- **Backed.** The hook reads the turn's tool calls from the payload's `transcript_path` (Claude Code's JSONL
+  transcript): the entries after the last user prompt. A `Write` or `Edit` tool call whose result is not an error
+  backs the claim, and the reply is delivered. A failed write does not back it, and a write from an earlier turn does not.
+  A result counts as failed when `is_error` is true, or when its text starts with "Permission", "denied" or "Error"
+  (without `is_error`). Any successful Write/Edit backs any claim, whatever it wrote.
+- **Block.** An unbacked claim blocks the stop once per turn. The reason (`SAVE_CLAIM_NUDGE`) tells the model to
+  save a preference to `./PREFERENCES.md` in its working directory (copying it there if it lives elsewhere) or drop
+  the claim, then answer the user without mentioning memory, files, turns or this check. Claude Code continues the
+  same turn with the reason as feedback. The reply is not written to the outbox.
+- **Second claim.** A second unbacked claim in the same turn is delivered, and one line is logged:
+  `claude-code-bridge: unbacked save claim delivered after one block`. The per-turn count (`save_claim_state.json`)
+  is reset by the worker when it injects a new turn, like the reply guard's count.
+- **Log.** Each block appends `claude-code-bridge: blocked unbacked save claim` to `reply_guard.log` (with a timestamp). The reply text is never logged.
+- **Config file.** Each launch writes `save_claim_guard.json` when the guard is on and removes it when off. The
+  setting is in the launch fingerprint only when on, so other channels keep their fingerprint.
+- **Fail open.** An unreadable transcript, or a block that cannot be recorded, delivers the reply and logs a WARNING.
+- **Not covered.** Chat via hooks (`chat_hooks`) replies are not checked by this guard; the reply guard is not
+  applied there either. Accepted false positives, blocked once per turn (the second is delivered): words such as
+  "stored" in a non-claim ("the stored procedure"), and a non-memory "saved" such as "I saved you a spot".
+
 ## Blocked prompts
 
 Why: a bridged session is unattended. When a repo hook or a permission rule opens a confirmation dialog

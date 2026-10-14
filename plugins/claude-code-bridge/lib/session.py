@@ -130,6 +130,7 @@ def prepare_dir(cfg: dict, cid: str) -> Path:
         _install_reply_guard(d, config.for_channel(cfg, cid))
     else:
         (d / REPLY_GUARD_FILE).unlink(missing_ok=True)
+    _install_save_claim_guard(d, config.for_channel(cfg, cid))
     settings["permissions"] = {"deny": deny}
     _atomic_write(d / ".claude" / "settings.json", json.dumps(settings, indent=2) + "\n")
     return d
@@ -354,6 +355,18 @@ def reply_guard_config(eff: dict) -> dict | None:
     }
 
 
+SAVE_CLAIM_FILE = "save_claim_guard.json"  # the Stop hook's switch (stop_hook.py holds the patterns)
+
+
+def _install_save_claim_guard(d: Path, eff: dict) -> None:
+    """Write the save-claim switch for the Stop hook when ``save_claim_guard`` is on; remove a stale copy when off."""
+    path = d / SAVE_CLAIM_FILE
+    if eff.get("save_claim_guard") is True:
+        _atomic_write(path, json.dumps({"enabled": True}) + "\n")
+    else:
+        path.unlink(missing_ok=True)
+
+
 def _install_reply_guard(d: Path, eff: dict) -> None:
     """Write the channel's compiled reply guard for the Stop hook; remove a stale copy when it is off."""
     guard = reply_guard_config(eff)
@@ -502,6 +515,8 @@ def fingerprint(cfg: dict, cid: str) -> str:
     reply = reply_guard_config(config.for_channel(cfg, cid)) if hooks is None else None
     if reply is not None:  # same rule: unconfigured channels keep their fingerprint
         fields["reply_guard"] = reply
+    if config.for_channel(cfg, cid).get("save_claim_guard") is True:  # only when on, so other channels keep their fingerprint
+        fields["save_claim_guard"] = True
     blob = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 

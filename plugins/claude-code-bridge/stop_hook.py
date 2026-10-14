@@ -8,6 +8,8 @@ ends. It reads the hook JSON from stdin, then does one of two things:
   ``{"decision": "block", "reason": ...}`` on stdout. Claude Code then continues the same turn with
   the reason as feedback. Nothing is written to the outbox; the nudge count (``reply_guard_state.json``)
   goes up by one and one line is appended to ``reply_guard.log``.
+- Blocks once per turn a final reply that claims a save (``save_claim_guard``) when no Write or Edit
+  succeeded in the turn (read from ``transcript_path``). The second claim in a turn is delivered and logged.
 - Otherwise writes ``outbox/<time_ns>.json`` next to itself, which the gateway worker posts, and
   resets the nudge count. A match past ``max_nudges`` is delivered with a WARNING line in the log.
 
@@ -25,6 +27,36 @@ from pathlib import Path
 GUARD_CONFIG = "reply_guard.json"  # written by lib/session.py at launch
 GUARD_STATE = "reply_guard_state.json"  # per-turn nudge count; reset by lib/spool.py on a new turn
 GUARD_LOG = "reply_guard.log"
+SAVE_CLAIM_CONFIG = "save_claim_guard.json"  # present when save_claim_guard is on; written by lib/session.py at launch
+SAVE_CLAIM_STATE = "save_claim_state.json"  # per-turn block count; reset by lib/spool.py on a new turn
+PREFERENCES_FILE = "PREFERENCES.md"  # the channel's preference store, in the session's working directory
+SAVE_CLAIM_NUDGE = (
+    "Your reply claimed a save, but nothing was written in this turn. If the user asked you to keep a "
+    f"preference, write it now to ./{PREFERENCES_FILE} in your working directory (copy it there if it already "
+    "exists elsewhere, so that file is the only place), then reply. Otherwise remove the save claim. "
+    "Reply to the user's message in plain words, in the same language your replies in this chat always use. "
+    "Never mention memory, files, file names, "
+    "turns, sessions, earlier replies or this check."
+)
+# A save claim in the final reply (case-insensitive; EN, ES, NL). A match preceded by a negation is not a claim.
+SAVE_CLAIM_PATTERNS = [
+    r"(?i)\bsaved\b",
+    r"(?i)\bstored\b",
+    r"(?i)\bI(?:'|’)?ll remember\b",
+    r"(?i)\bI will remember\b",
+    r"(?i)\bnoted for next time\b",
+    r"(?i)\bin memory\b",
+    r"(?i)\bguardad[oa]s?\b",
+    r"(?i)\bya est[aá] guardad[oa]\b",
+    r"(?i)\ben (?:tu|mi) memoria\b",
+    r"(?i)\blo recordar[eé]\b",
+    r"(?i)\bopgeslagen\b",
+    r"(?i)\bonthouden\b",
+]
+NEGATIONS = {"not", "never", "no", "nothing", "none", "nobody", "niet", "niets", "niks", "niemand", "geen", "nada",
+             "nunca", "ni", "nicht", "nie"}
+WRITE_TOOLS = {"Write", "Edit"}  # the tool calls that back a save claim
+FAILURE_PREFIXES = ("permission", "denied", "error")  # a tool result without is_error whose text starts like this failed
 DEFAULT_NUDGE = (
     "Your reply was not sent: it gives up instead of delivering. Do not apologise or explain. "
     "Continue the task now and post the best result you can in the required format."
@@ -130,6 +162,137 @@ def _guard_reason(d: Path, text: str) -> str | None:
         return None
 
 
+def _save_claim_on(d: Path) -> bool:
+    """True when the channel's save_claim_guard file is present and switched on."""
+    try:
+        raw = json.loads((d / SAVE_CLAIM_CONFIG).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        _log(d, "WARNING save_claim: save_claim_guard.json unreadable; replies are delivered without the guard")
+        return False
+    return isinstance(raw, dict) and raw.get("enabled") is True
+
+
+def _save_claim(text: str) -> str | None:
+    """The first save claim in ``text`` that is not negated, or None."""
+    for pattern in SAVE_CLAIM_PATTERNS:
+        for found in re.finditer(pattern, text):
+            if not _is_negated(text, found.start(), found.end()):
+                return found.group(0)
+    return None
+
+
+def _is_negated(text: str, start: int, end: int) -> bool:
+    """True when a negation sits in the same clause, within three words after the match or four before it.
+
+    "not saved", "no lo he guardado", "Nothing was saved", "I have saved nothing", "Er is niets opgeslagen".
+    """
+    before = re.split(r"[.!?,;\n]", text[:start])[-1]
+    after = re.split(r"[.!?,;\n]", text[end:])[0]
+    words = [w.lower() for w in re.findall(r"[\w']+", before)][-4:] + [w.lower() for w in re.findall(r"[\w']+", after)][:3]
+    return any(w in NEGATIONS or w.endswith("n't") for w in words)
+
+
+def _result_failed(block: dict) -> bool:
+    """A tool result counts as failed when is_error is true, or its text starts like a permission or error message."""
+    if block.get("is_error") is True:
+        return True
+    content = block.get("content")
+    if isinstance(content, list):
+        text = " ".join(str(b.get("text") or "") for b in content if isinstance(b, dict))
+    else:
+        text = str(content or "")
+    return text.strip().lower().startswith(FAILURE_PREFIXES)
+
+
+def _turn_has_write(transcript: str) -> bool:
+    """True when the turn (the entries after the last user prompt) has a Write or Edit tool call that succeeded.
+
+    ``transcript`` is the hook payload's ``transcript_path``: Claude Code's JSONL session transcript. Raises
+    OSError/ValueError/TypeError when it cannot be read; the caller fails open.
+    """
+    entries = []
+    with open(transcript, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                try:
+                    entries.append(json.loads(line))
+                except ValueError:
+                    continue
+    start = 0
+    for i, entry in enumerate(entries):
+        if isinstance(entry, dict) and entry.get("type") == "user" and _is_prompt(entry):
+            start = i
+    writes: set = set()
+    results: dict = {}
+    for entry in entries[start:]:
+        content = (entry.get("message") or {}).get("content") if isinstance(entry, dict) else None
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use" and block.get("name") in WRITE_TOOLS:
+                writes.add(block.get("id"))
+            elif block.get("type") == "tool_result":
+                results[block.get("tool_use_id")] = not _result_failed(block)
+    return any(results.get(tool_id) for tool_id in writes)
+
+
+def _is_prompt(entry: dict) -> bool:
+    """A user entry that carries typed text (not only tool results)."""
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return bool(content.strip())
+    return isinstance(content, list) and any(
+        isinstance(b, dict) and b.get("type") == "text" and str(b.get("text") or "").strip() for b in content
+    )
+
+
+def _read_blocks(d: Path) -> int:
+    try:
+        return max(0, int(json.loads((d / SAVE_CLAIM_STATE).read_text(encoding="utf-8")).get("blocks") or 0))
+    except (OSError, ValueError, AttributeError, TypeError):
+        return 0
+
+
+def _write_blocks(d: Path, n: int) -> bool:
+    try:
+        _atomic_write(d / SAVE_CLAIM_STATE, json.dumps({"blocks": n}))
+        return True
+    except OSError:
+        return False
+
+
+def _save_claim_reason(d: Path, text: str, transcript) -> str | None:
+    """The block reason for an unbacked save claim, or None (guard off, no claim, backed by a write, second block, or any failure)."""
+    try:
+        if not _save_claim_on(d):
+            return None
+        claim = _save_claim(text)
+        if claim is None:
+            return None
+        try:
+            wrote = _turn_has_write(transcript)
+        except (OSError, ValueError, TypeError):
+            _log(d, "WARNING save_claim: transcript unreadable; the reply is delivered without the guard")
+            return None
+        if wrote:
+            return None
+        blocks = _read_blocks(d)
+        if blocks >= 1:  # one block per turn: the second claim is delivered, and logged
+            _log(d, "claude-code-bridge: unbacked save claim delivered after one block")
+            return None
+        if not _write_blocks(d, blocks + 1):
+            _log(d, "WARNING save_claim: block could not be recorded; the reply is delivered")
+            return None
+        _log(d, "claude-code-bridge: blocked unbacked save claim")
+        return f"{SAVE_CLAIM_NUDGE}\nMatched phrase: \"{claim}\""
+    except Exception:
+        return None
+
+
 def _deliver(d: Path, data: dict, text: str, turn_end: bool = False) -> None:
     outbox = d / "outbox"
     outbox.mkdir(parents=True, exist_ok=True)
@@ -229,6 +392,8 @@ def main() -> None:
             sys.stdout.write(json.dumps({"decision": "block", "reason": reason}) + "\n")
         return
     reason = _guard_reason(d, text)
+    if reason is None:
+        reason = _save_claim_reason(d, text, data.get("transcript_path"))
     if reason is not None:
         sys.stdout.write(json.dumps({"decision": "block", "reason": reason}) + "\n")
         return

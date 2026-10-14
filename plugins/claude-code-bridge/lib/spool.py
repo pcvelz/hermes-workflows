@@ -119,9 +119,13 @@ def save_state(cfg: dict[str, Any], cid: str, state: dict[str, Any]) -> None:
     _atomic_write(path, json.dumps(state, ensure_ascii=False, indent=2))
 
 
+SAVE_CLAIM_STATE = "save_claim_state.json"  # the Stop hook's save-claim block count (stop_hook.py keeps the same name)
+
+
 def reset_reply_guard_count(cfg: dict[str, Any], cid: str) -> None:
-    """Zero the Stop hook's reply-guard nudge count for the channel. Called when a new turn is injected."""
+    """Zero the Stop hook's per-turn counts for the channel (reply-guard nudges, save-claim blocks). Called when a new turn is injected."""
     _atomic_write(channel_dir(cfg, cid) / REPLY_GUARD_STATE, json.dumps({"nudges": 0}))
+    _atomic_write(channel_dir(cfg, cid) / SAVE_CLAIM_STATE, json.dumps({"blocks": 0}))
 
 
 def reset_chat_turn(cfg: dict[str, Any], cid: str) -> None:

@@ -77,6 +77,9 @@ DEFAULTS: dict[str, Any] = {
     "operator_channel": "",
     # Deny AskUserQuestion in the session's settings (the answer would wait for a human who is not there).
     "deny_ask_user_question": False,
+    # Save-claim guard (off by default, like reply_guard). The Stop hook blocks, once per turn, a final reply that claims
+    # something was saved when no Write/Edit succeeded in that turn. Patterns: stop_hook.py SAVE_CLAIM_PATTERNS.
+    "save_claim_guard": False,
     "keys_dir": "",
     "mcp_servers": {},
     "mcp_allowed_tools": [],
@@ -191,7 +194,7 @@ def for_channel(cfg: dict[str, Any], cid: str) -> dict[str, Any]:
     operator = override.get("operator_channel")
     if isinstance(operator, str) and operator.strip():
         eff["operator_channel"] = operator.strip()  # this channel's operator (its team's); overrides the global one
-    for key in ("repo_scope_guard", "public_first_guard"):
+    for key in ("repo_scope_guard", "public_first_guard", "save_claim_guard"):
         if isinstance(override.get(key), bool):
             eff[key] = override[key]
     root = override.get("repo_scope_root")
