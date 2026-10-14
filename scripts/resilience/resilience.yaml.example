@@ -19,7 +19,7 @@ agent:
   # backend_busy) are retried until this budget runs out. api_max_retries still
   # applies, unchanged, to REAL failures.
   #
-  # Accepts 30m / 6h / 12h / 1800 (a bare number is seconds). Default 6h.
+  # Accepts 30m / 6h / 12h / 1800 (a bare number is seconds). Default 12h.
   #
   # HARD INVARIANT: model_wait_budget < the card's max_runtime.
   # The card runtime cap is the OUTER bound. A budget at or above it lets the
@@ -28,7 +28,7 @@ agent:
   # value that breaks it is a startup error; the default yields to a shorter
   # card cap by itself.
   # --------------------------------------------------------------------------
-  model_wait_budget: 6h
+  model_wait_budget: 12h
 
   # Unchanged upstream key. Now governs REAL failures only.
   api_max_retries: 3

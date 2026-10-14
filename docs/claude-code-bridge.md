@@ -479,7 +479,7 @@ as a string such as `'["a", "b"]'`.
 | `allowed_users` | `[]` | Chat usernames that may reach the bridge. `"*"` = every sender; empty = nobody. |
 | `allowed_channels` | `[]` | Channel ids the bridge answers. `"*"` = every channel the bot is in; empty = none. |
 | `reply_in_thread` | `false` | `true` = every bridged reply is a thread on the user's post. |
-| `wait_budget_minutes` | `360` | How long to wait for a reply before the single failure reply. |
+| `wait_budget_minutes` | `720` | How long to wait for a reply before the single failure reply. |
 | `tmux_socket` | `claude-code-bridge` | tmux server socket name (`tmux -L`). |
 | `poll_seconds` | `2` | Worker loop interval. |
 | `passthrough_patterns` | investigation regexes in EN/ES/NL (see "Investigations") | Case-insensitive; a match is not bridged. |

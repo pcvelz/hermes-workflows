@@ -249,10 +249,10 @@ class TestErrorTaxonomy(unittest.TestCase):
 
 class TestWaitBudget(unittest.TestCase):
 
-    def test_shipped_default_is_six_hours(self):
+    def test_shipped_default_is_twelve_hours(self):
         # A busy local model is a queue: a request waits hours, not minutes.
-        self.assertEqual(DEFAULT_WAIT_BUDGET_SECONDS, 6 * 3600)
-        self.assertEqual(WaitBudget().budget_seconds, 6 * 3600)
+        self.assertEqual(DEFAULT_WAIT_BUDGET_SECONDS, 12 * 3600)
+        self.assertEqual(WaitBudget().budget_seconds, 12 * 3600)
 
     def test_the_default_yields_to_a_shorter_card_cap(self):
         # A 4h card must not be a startup error just because nobody set a
@@ -261,7 +261,7 @@ class TestWaitBudget(unittest.TestCase):
         budget = WaitBudget(max_runtime_seconds="4h")
         self.assertLess(budget.budget_seconds, 4 * 3600)
         self.assertGreater(budget.budget_seconds, 3 * 3600)
-        self.assertEqual(WaitBudget(max_runtime_seconds="24h").budget_seconds, 6 * 3600)
+        self.assertEqual(WaitBudget(max_runtime_seconds="24h").budget_seconds, 12 * 3600)
         with self.assertRaises(WaitBudgetInvariantError):
             WaitBudget("6h", max_runtime_seconds="4h")
 

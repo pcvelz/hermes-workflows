@@ -174,7 +174,7 @@ claude_code_bridge:
   allowed_users: []              # chat usernames allowed to reach the bridge; ["*"] = every sender; empty = nobody (fail-closed)
   allowed_channels: []           # channel ids; ["*"] = every channel the bot is a member of; empty = no channel (fail-closed)
   reply_in_thread: false         # true = always reply in a thread on the user's message; false = top-level unless the user wrote in a thread
-  wait_budget_minutes: 360       # how long a bridged reply may take before the user gets one failure notice
+  wait_budget_minutes: 720      # how long a bridged reply may take before the user gets one failure notice
   tmux_socket: claude-code-bridge         # tmux -L socket name for the bridge's private tmux server
   poll_seconds: 2                # worker loop interval, in seconds
   # A message matching one of these case-insensitive regexes is NOT bridged: Hermes answers it

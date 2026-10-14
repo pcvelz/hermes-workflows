@@ -57,7 +57,7 @@ class ConfigTests(_TempDirCase):
         self.assertEqual(cfg["max_reply_chars"], 15000)
         self.assertEqual(cfg["allowed_users"], [])
         self.assertEqual(cfg["allowed_channels"], [])
-        self.assertEqual(cfg["wait_budget_minutes"], 360)
+        self.assertEqual(cfg["wait_budget_minutes"], 720)
         self.assertEqual(cfg["tmux_socket"], "claude-code-bridge")
         self.assertEqual(cfg["poll_seconds"], 2)
         self.assertIn("plain text", cfg["append_system_prompt"])

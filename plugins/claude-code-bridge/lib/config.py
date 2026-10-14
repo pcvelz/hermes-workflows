@@ -41,7 +41,7 @@ DEFAULTS: dict[str, Any] = {
     "allowed_users": [],
     "allowed_channels": [],
     "reply_in_thread": False,
-    "wait_budget_minutes": 360,
+    "wait_budget_minutes": 720,
     "tmux_socket": "claude-code-bridge",
     "poll_seconds": 2,
     # Channel-name prefixes (e.g. "inv-"): every message in a channel whose name starts with one is

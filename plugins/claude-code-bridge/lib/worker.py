@@ -431,7 +431,7 @@ def _post_notices(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, st
     A notice never touches the session state. A missing adapter holds it with no attempt used; a
     failed post backs off and is parked at the attempt cap. Parked notices wait for a restart.
     """
-    budget_s = float(cfg.get("wait_budget_minutes", 360)) * 60
+    budget_s = float(cfg.get("wait_budget_minutes", 720)) * 60
     outbox = spool.channel_dir(cfg, cid) / "outbox"
     for path in sorted(outbox.glob("*.json"), key=lambda p: (len(p.stem), p.stem)):
         if not spool.is_notice(path):
@@ -557,7 +557,7 @@ def _tick_channel(cfg: dict[str, Any], cid: str, post_fn: Callable[[str, Any, st
     _post_notices(cfg, cid, post_fn, now)
     state = spool.load_state(cfg, cid)
     inflight = state.get("inflight")
-    budget_s = float(cfg.get("wait_budget_minutes", 360)) * 60
+    budget_s = float(cfg.get("wait_budget_minutes", 720)) * 60
     if inflight or state.get("blocked") or state.get("blocked_candidate"):
         _check_blocked(cfg, cid, state, now)  # a dialog can only block a turn in flight
         spool.save_state(cfg, cid, state)  # kept even when a later step returns early

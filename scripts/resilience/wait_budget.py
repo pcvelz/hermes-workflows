@@ -58,11 +58,11 @@ __all__ = [
     "WaitBudget",
 ]
 
-#: Shipped default: 6 hours.  A local model that is busy is a queue, not a
+#: Shipped default: 12 hours.  A local model that is busy is a queue, not a
 #: failure: a request parked behind other callers can legitimately wait hours,
 #: and a chat user must not see an error for that.  Under a shorter card cap
 #: the default yields to the cap (see WaitBudget); an explicit value does not.
-DEFAULT_WAIT_BUDGET_SECONDS = 6 * 3600
+DEFAULT_WAIT_BUDGET_SECONDS = 12 * 3600
 
 #: The share of a card's runtime cap the DEFAULT budget may take when the cap
 #: is shorter than the default: the rest is left for the actual work.

@@ -127,7 +127,7 @@ agent:
   # it is silent: a short bound ends it and re-sends it to the BACK of the
   # queue, every time, and a busy box never serves it. The wait still shows on
   # the card; the escalator pages on its own five-minute rule.
-  stream_silence_limit_s: 21600
+  stream_silence_limit_s: 43200
   # Retries for REAL failures (auth_permanent, billing, context_overflow,
   # payload_too_large, model_not_found, provider_policy_blocked). Retrying
   # cannot help those, so a count is the right limit.
@@ -139,7 +139,7 @@ agent:
   # which is not enough when another caller holds a shared local backend.
   #
   # This is THE setting for "how long may a request wait before it fails".
-  # Default 6h: a local model that is busy is a queue, not a failure, and
+  # Default 12h: a local model that is busy is a queue, not a failure, and
   # nobody chatting with the agent over Mattermost / Telegram should see an
   # error, a retry notice or a gateway status line because of it. Lower it if
   # you would rather hear about a stuck backend sooner; raise it for a box
@@ -152,7 +152,7 @@ agent:
   # burn the whole card allowance in backoff and then get reaped as timed_out.
   # An explicit value that breaks it is a startup error; the default yields to
   # a shorter card cap by itself. See docs/resilience.md.
-  model_wait_budget: 6h
+  model_wait_budget: 12h
 
   reasoning_effort: medium     # low | medium | high
   tool_use_enforcement: auto
