@@ -41,6 +41,10 @@ DEFAULTS: dict[str, Any] = {
     "allowed_users": [],
     "allowed_channels": [],
     "reply_in_thread": False,
+    # Passthrough (Hermes answers an investigation): True = the reply is a thread on the investigation post
+    # (or the existing thread). False = the reply goes where the user wrote: main post -> main reply,
+    # thread post -> reply in that thread.
+    "passthrough_reply_in_thread": True,
     "wait_budget_minutes": 720,
     "tmux_socket": "claude-code-bridge",
     "poll_seconds": 2,

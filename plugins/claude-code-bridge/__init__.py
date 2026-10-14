@@ -7,7 +7,8 @@ session running ``claude``; a Stop hook writes the reply to the channel outbox a
 worker posts it in the thread. Hermes' own model is not called for bridged messages.
 
 Passthrough (``passthrough_patterns``): Hermes answers in the same channel, in a thread under the
-investigation post (``source.thread_id``), and the message is not bridged.
+investigation post (or where the user wrote, with ``passthrough_reply_in_thread: false``)
+(``source.thread_id``), and the message is not bridged.
 
 Fail-closed: disabled by default, an empty allowlist admits nobody, and a non-Mattermost
 or non-allowed message returns ``None`` so Hermes handles it as before. Any error inside
@@ -127,7 +128,10 @@ def _decide(event: Any, cfg: dict[str, Any], ensure_worker: bool = True) -> dict
         # Investigation: Hermes answers it (native delegate_task fan-out), nothing is bridged.
         # The gateway sends the reply into the thread named by source.thread_id: the existing
         # thread root if the message is already a reply, else the investigation post itself.
-        source.thread_id = item["root_id"] or item["post_id"] or None
+        in_thread = item["root_id"]  # the user wrote inside a thread: always stay in it
+        if cfg.get("passthrough_reply_in_thread", True):
+            in_thread = in_thread or item["post_id"]  # public default: thread on the investigation post
+        source.thread_id = in_thread or None
         return None
     spool.enqueue(cfg, cid, item)
     if ensure_worker:

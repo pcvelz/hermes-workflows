@@ -319,6 +319,11 @@ rule (b) above. The default list is English: `investigate` (and its forms), `I w
 `claude_code_bridge.passthrough_patterns`; that list replaces the default, so copy the English entries too.
 A pattern that does not compile is logged and skipped.
 
+Where Hermes' passthrough reply lands: by default (`passthrough_reply_in_thread: true`) it is a thread on the investigation
+post, or the existing thread if the message was already a reply. With `passthrough_reply_in_thread: false` it goes where the
+user wrote: a main-channel post gets a main-channel reply (no thread, so Hermes uses the channel-level session), and a post
+inside a thread gets its reply in that thread.
+
 `passthrough_channel_prefixes` (default `[]`, off) is a list of channel-name prefixes. Every message in an allowed
 channel whose internal name starts with one of them is left to Hermes, never bridged (for example research
 channels created per topic). A channel name that cannot be resolved is left to Hermes too (fail closed to Hermes).
@@ -483,6 +488,7 @@ as a string such as `'["a", "b"]'`.
 | `tmux_socket` | `claude-code-bridge` | tmux server socket name (`tmux -L`). |
 | `poll_seconds` | `2` | Worker loop interval. |
 | `passthrough_patterns` | investigation regexes in EN/ES/NL (see "Investigations") | Case-insensitive; a match is not bridged. |
+| `passthrough_reply_in_thread` | `true` | `false` = a passthrough reply goes where the user wrote (main post -> main reply, thread post -> that thread). |
 | `repo_permission_mode` | `""` (unset) | Repo channels only (a `cwd`): `--permission-mode` value; unset = the user's own settings decide. Valid: `default`, `acceptEdits`, `plan`, `dontAsk`, `bypassPermissions`; others are ignored with a warning. Spool channels ignore it. Per-channel value overrides the global one. |
 | `claude_args` | `[]` | Extra `claude` arguments, appended verbatim to the launch line (a channel's list is added to it). Use it to match how the deployment's user launches Claude Code, e.g. a permission flag, so a repo channel needs no other setup. |
 | `keys_dir` | `""` | Folder that `keyfile:` references resolve against. Empty = `<HERMES_HOME>/keys`. |

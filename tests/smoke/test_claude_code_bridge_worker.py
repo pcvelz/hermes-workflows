@@ -780,6 +780,31 @@ class PassthroughTests(_Base):
         queued = spool.pending(self.cfg, CID)
         self.assertEqual(spool.pop(queued[0])["control"], "reset")
 
+    def test_passthrough_reply_in_thread_default_threads_main_post(self):
+        self.assertTrue(config.DEFAULTS["passthrough_reply_in_thread"])
+        event, source = self._raw_event("investigate zebras")
+        self.assertIsNone(self.plugin._decide(event, self.cfg, ensure_worker=False))
+        self.assertEqual(source.thread_id, "p9")
+
+    def test_passthrough_reply_where_written_main_post_stays_main(self):
+        self.cfg["passthrough_reply_in_thread"] = False
+        event, source = self._raw_event("investigate zebras")
+        self.assertIsNone(self.plugin._decide(event, self.cfg, ensure_worker=False))
+        self.assertIsNone(source.thread_id)
+
+    def test_passthrough_reply_where_written_thread_post_stays_in_thread(self):
+        self.cfg["passthrough_reply_in_thread"] = False
+        event, source = self._raw_event("investigate zebras", root_id="root7")
+        self.assertIsNone(self.plugin._decide(event, self.cfg, ensure_worker=False))
+        self.assertEqual(source.thread_id, "root7")
+
+    def test_passthrough_reply_where_written_thread_root_is_a_bot_post(self):
+        # a user reply under a bot post: the thread root is the bot's post id and is kept
+        self.cfg["passthrough_reply_in_thread"] = False
+        event, source = self._raw_event("investigate zebras", root_id="botpost1")
+        self.assertIsNone(self.plugin._decide(event, self.cfg, ensure_worker=False))
+        self.assertEqual(source.thread_id, "botpost1")
+
 
 class LaunchFingerprintRestartTests(_Base):
     """The worker restarts an idle session with --resume when its launch fingerprint changed."""
