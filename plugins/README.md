@@ -35,9 +35,10 @@ never touches the cached system-prompt prefix and is never persisted).
 | [`skill-router`](skill-router/) | `pre_llm_call` | Injects a matching skill's `router_directive` into the turn so a small local model actually follows it. |
 | [`tooling-steering`](tooling-steering/) | `pre_llm_call` | For HTTP-API / MCP-setup requests, injects a tool-discipline instruction so the agent runs the call itself. |
 | [`reply-language`](reply-language/) | `pre_llm_call` | In a Mattermost channel, tells the model which language to answer in, from the channel's team (team→language map in the profile config `reply_language.teams`). Unmapped teams and other platforms get nothing. |
+| [`session-scope-guard`](session-scope-guard/) | `pre_tool_call` | In gateway chat, `session_search` may read only the asking user's own sessions: discovery, browse and `profile` arguments and other users' or unowned sessions are blocked (fail-closed on lookup error). CLI use is untouched. |
 | [`mattermost-auto-vacate`](mattermost-auto-vacate/) | background thread (no hook) | On by default: the bot leaves a Mattermost channel once no human is left in it for a grace period. Only the bot's own membership is removed. |
 
-Every plugin except `kanban-harness` and `file-read` (which refuses what it cannot classify) is **fail-open**: any error in a hook returns `None` (allow), so a plugin bug
+Every plugin except `kanban-harness`, `file-read` (which refuses what it cannot classify) and `session-scope-guard` (fail-closed in gateway chat: a lookup error blocks, outside chat it allows) is **fail-open**: any error in a hook returns `None` (allow), so a plugin bug
 can never break a legitimate tool call or turn. Each is independently reviewable — no shared
 library is factored out, on purpose (self-contained is the security-review-friendly choice).
 

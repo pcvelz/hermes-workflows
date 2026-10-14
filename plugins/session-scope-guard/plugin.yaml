@@ -1,0 +1,6 @@
+name: session-scope-guard
+version: 1.0.0
+description: "In gateway chat, session_search may only read the asking user's own sessions: discovery, browse and profile arguments are blocked, other users' and unowned sessions are blocked, lookup errors fail closed. CLI use is untouched."
+author: "Hermes Workflows"
+hooks:
+  - pre_tool_call
