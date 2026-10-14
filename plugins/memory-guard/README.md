@@ -19,6 +19,8 @@ This plugin is the Hermes analog of Claude Code's `block-memory-write.sh` PreToo
 - URL-embedded credentials (`scheme://user:pass@host`)
 - PEM private-key block headers (`-----BEGIN … PRIVATE KEY-----`)
 
+**Second rule: behaviour promises.** A memory entry that promises how replies are delivered or formatted (for example "From now on, when you write in a thread I'll reply in that thread" or "From now on I'll attach the answer as a PDF") is a false promise, because placement and delivery are decided by the system, not by memory. The hook blocks an add/replace entry when a promise cue (`from now on`, `going forward`, `de ahora en adelante`, …) and a delivery-mechanics term (thread or channel placement, attachment, PDF, reply splitting, …) appear together. The block message tells the model the entry was NOT saved, and each block writes the log line `memory-guard: blocked behaviour-promise memory entry` to the agent log. Genuine content preferences ("The user prefers lists over tables", "From now on show prices in euros") carry no mechanics term and stay allowed. `main channel`/`main chat` count as delivery only when a reply/respond/post/answer verb sits nearby, so "show prices in the main chat currency" stays allowed.
+
 ## Files
 
 | File | Purpose |

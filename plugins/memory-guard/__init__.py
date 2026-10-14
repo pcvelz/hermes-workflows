@@ -27,8 +27,11 @@ Secret detection scope (v1 — secrets only, not general PII):
   * URL-embedded credentials (scheme://user:pass@…)
   * PEM private key headers (-----BEGIN … PRIVATE KEY-----)
 """
+import logging
 import os
 import re
+
+logger = logging.getLogger("memory_guard")
 
 # ---------------------------------------------------------------------------
 # Write-ish actions that carry new secret-bearing content into memory.
@@ -73,6 +76,36 @@ _URLCRED = re.compile(
 
 # PEM private key block header.
 _PEM = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+
+# A "promise" cue AND a delivery/format-mechanics term in the same entry = a behaviour promise.
+# Content preferences (lists vs tables, top-x cheapest, shipping costs) carry no mechanics term.
+_PROMISE_CUE = re.compile(
+    r"(?i)(?:\b(?:from now on|going forward|every time|de ahora en adelante|a partir de ahora|desde ahora)\b|"
+    r"\b(?:siempre|always)\b|"
+    r"\bi(?:'|’)?ll (?:reply|respond|attach|send|upload)\b|"
+    r"\bi will (?:reply|respond|attach|send|upload)\b|"
+    r"\bvoy a (?:responder|enviar|adjuntar|subir)\b)"
+)
+_DELIVERY_MECHANICS = re.compile(
+    r"(?i)(?:\bin (?:(?:the same|the|that|this|a) )?threads?\b|\bin-threads?\b|"
+    r"\bunder (?:that|the|this) (?:post|thread)\b|"
+    r"\b(?:reply|respond|post|answer)\w*\b.{0,40}\bmain (?:channel|chat)\b|"
+    r"\bmain (?:channel|chat)\b.{0,40}\b(?:reply|respond|post|answer)\w*\b|"
+    r"\breply placement\b|\bas an? (?:pdf|attachment|file)\b|\bpdfs?\b|"
+    r"\bsplit(?:ting)? (?:the )?(?:reply|message)\b|\b(?:en|al) (?:el|un|ese|este) hilo\b|"
+    r"\bcanal principal\b|\bcomo (?:un )?(?:pdf|adjunto)\b)"
+)
+
+_PROMISE_BLOCK_MESSAGE = (
+    "BLOCKED by memory-guard: this entry promises how replies are delivered (thread or channel placement, "
+    "attachment, format). Delivery is decided by the system, not by memory. The entry was NOT saved: do not "
+    "tell the user it was saved or that the behaviour will change. Save only the user's preferences about "
+    "content (for example lists versus tables)."
+)
+
+
+def _promises_system_behaviour(text: str) -> bool:
+    return bool(isinstance(text, str) and _PROMISE_CUE.search(text) and _DELIVERY_MECHANICS.search(text))
 
 
 def _secret_env_values():
@@ -147,6 +180,11 @@ def _on_pre_tool_call(tool_name=None, args=None, **kwargs):
 
         if _contains_secret(content):
             return {"action": "block", "message": _BLOCK_MESSAGE}
+
+        if _promises_system_behaviour(content):
+            logger.warning("memory-guard: blocked behaviour-promise memory entry: %.100s",
+                           content.replace("\n", " "))
+            return {"action": "block", "message": _PROMISE_BLOCK_MESSAGE}
 
     except Exception:
         # Fail-open: plugin errors must never break a legitimate memory write.
@@ -243,6 +281,29 @@ if __name__ == "__main__":
     if not blocked_f:
         failures += 1
     print(f"[{label_f}] (f) AWS AKIA key in replace content → BLOCKED")
+
+    # Case (g): behaviour promise about reply placement must be blocked
+    result_g = _on_pre_tool_call(
+        tool_name="memory",
+        args={"action": "add", "target": "user",
+              "content": "From now on, when you write in a thread I'll reply in that thread"},
+    )
+    blocked_g = isinstance(result_g, dict) and result_g.get("action") == "block" and "NOT saved" in result_g.get("message", "")
+    label_g = _PASS if blocked_g else _FAIL
+    if not blocked_g:
+        failures += 1
+    print(f"[{label_g}] (g) 'From now on, when you write in a thread I'll reply in that thread' → BLOCKED")
+
+    # Case (h): content preference must stay allowed
+    result_h = _on_pre_tool_call(
+        tool_name="memory",
+        args={"action": "add", "target": "user", "content": "The user prefers lists over tables"},
+    )
+    allowed_h = result_h is None
+    label_h = _PASS if allowed_h else _FAIL
+    if not allowed_h:
+        failures += 1
+    print(f"[{label_h}] (h) 'The user prefers lists over tables' → ALLOWED")
 
     print()
     if failures == 0:
