@@ -59,6 +59,14 @@ A reply goes top-level by default. It goes into a thread in two cases:
 the user's post. Its default is `false`. The wait-budget failure reply (below) follows the
 same placement.
 
+`reply_where_written: true` makes a bridged reply follow where the user wrote, and overrides
+`reply_in_thread`: a message written inside a thread (root `root_id`) is answered in that
+thread; a main-channel message is answered top-level. Its default is `false`, which keeps the
+placement above. When one turn covers several messages, the reply goes where the **last**
+message was written. The current worker takes one message per turn (FIFO), so the turn's own
+message decides. Such a reply is sent through the REST API, not the platform adapter, because
+the adapter sends a thread root only in its own `thread` reply mode.
+
 ## Several posts from one reply (`---post---`)
 
 A reply can be delivered as several separate posts. A line holding only `---post---` ends one
@@ -391,7 +399,7 @@ Passthrough is checked after `/reset` and only for allowed senders in allowed ch
 | `plugins/claude-code-bridge/__init__.py` | Registers `pre_gateway_dispatch`. Enforces `allowed_users` / `allowed_channels` itself (the hook runs **before** gateway authorization). Handles `/reset`, passthrough and enqueue. Starts the worker thread once. |
 | Passthrough (`passthrough_patterns`) | Investigations are not bridged. A matching message returns `None`; Hermes answers it in a thread (rule (b)). |
 | Worker (`lib/worker.py`) | One in-flight message per channel; FIFO for the rest. Starts or resumes sessions, injects, collects replies, enforces the wait budget, posts via the platform adapter, and stops idle sessions. |
-| `_reply_root` (worker) | Picks the reply's `root_id`: the user's thread root if they wrote in one, else the user's post id only when `reply_in_thread: true`, else `None` (top-level). |
+| `_reply_root` (worker) | Picks the reply's `root_id`: the user's thread root if they wrote in one, else the user's post id only when `reply_in_thread: true`, else `None` (top-level). With `reply_where_written`, the user's post is never the root. |
 | Session launcher (`lib/session.py`) | The `claude` launch line in the Launch section above, inside `tmux new-session -d` with the scrubbed environment. |
 | Per-channel settings | `<home>/channels/<channel>/.claude/settings.json` holds only the bridge's Stop hook. `--setting-sources project,local` keeps the user's global hooks and settings out of bridge sessions. |
 | Stop hook (`stop_hook.py`) | Reads the hook JSON from stdin. Runs the reply guard (blocks a give-up reply, see Reply guard), otherwise writes the reply to the channel outbox. It never posts. It never sees chat credentials. |
@@ -484,6 +492,7 @@ as a string such as `'["a", "b"]'`.
 | `allowed_users` | `[]` | Chat usernames that may reach the bridge. `"*"` = every sender; empty = nobody. |
 | `allowed_channels` | `[]` | Channel ids the bridge answers. `"*"` = every channel the bot is in; empty = none. |
 | `reply_in_thread` | `false` | `true` = every bridged reply is a thread on the user's post. |
+| `reply_where_written` | `false` | `true` = a bridged reply goes where the user wrote (thread post -> that thread, main post -> top-level). Overrides `reply_in_thread`. See "Reply placement". |
 | `wait_budget_minutes` | `720` | How long to wait for a reply before the single failure reply. |
 | `tmux_socket` | `claude-code-bridge` | tmux server socket name (`tmux -L`). |
 | `poll_seconds` | `2` | Worker loop interval. |

@@ -96,10 +96,11 @@ def inject_text(cfg: dict[str, Any], cid: str, item: dict[str, Any]) -> str:
 
 def _reply_root(cfg: dict[str, Any], inflight: dict[str, Any]) -> str | None:
     """Where a reply goes: the user's own thread if they wrote in one; the user's post only
-    when ``reply_in_thread`` is set; otherwise top-level (None)."""
+    when ``reply_in_thread`` is set; otherwise top-level (None). With ``reply_where_written`` the
+    user's post is never the root, so a main-channel message gets a top-level reply."""
     if inflight.get("root_id"):
         return inflight["root_id"]
-    if cfg.get("reply_in_thread") and inflight.get("post_id"):
+    if cfg.get("reply_in_thread") and not cfg.get("reply_where_written") and inflight.get("post_id"):
         return inflight["post_id"]
     return None
 

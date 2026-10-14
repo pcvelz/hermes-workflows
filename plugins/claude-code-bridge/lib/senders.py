@@ -71,6 +71,10 @@ def send(cfg: dict[str, Any], cid: str, root: Any, text: str) -> bool:
     platform = spool.load_state(cfg, cid).get("platform") or DEFAULT_PLATFORM
     adapter = _adapter(platform)
     max_chars = int(config.for_channel(cfg, cid).get("max_reply_chars", 15000))
+    # reply_where_written: the adapter sends reply_to as a thread root only in its own "thread" reply mode,
+    # so a Mattermost reply that must land in a thread goes through the REST API, which always sends the root.
+    if root and platform == "mattermost" and config.for_channel(cfg, cid).get("reply_where_written"):
+        return poster.post(cid, str(root), body, max_chars)
     if adapter is None or _loop is None:
         if platform == "mattermost":
             logger.info("claude-code-bridge: no live adapter yet; posting on channel %s via REST", cid)

@@ -41,6 +41,10 @@ DEFAULTS: dict[str, Any] = {
     "allowed_users": [],
     "allowed_channels": [],
     "reply_in_thread": False,
+    # True = a bridged reply goes where the user wrote: a thread post gets its reply in that thread (root = the
+    # post's root_id), a main-channel post gets a top-level reply. Overrides reply_in_thread. Such a reply is sent
+    # through the REST API, because the platform adapter drops the thread root unless its own reply mode is "thread".
+    "reply_where_written": False,
     # Passthrough (Hermes answers an investigation): True = the reply is a thread on the investigation post
     # (or the existing thread). False = the reply goes where the user wrote: main post -> main reply,
     # thread post -> reply in that thread.
