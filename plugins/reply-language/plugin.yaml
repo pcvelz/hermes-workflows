@@ -1,0 +1,6 @@
+name: reply-language
+version: 1.0.0
+description: "Inject the reply language into every Mattermost turn from the channel's team (map in the profile config: reply_language.teams). Unmapped teams get nothing. Fail-open."
+author: "Hermes Workflows"
+hooks:
+  - pre_llm_call

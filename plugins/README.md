@@ -34,6 +34,7 @@ never touches the cached system-prompt prefix and is never persisted).
 | [`prompt-log`](prompt-log/) | `pre_llm_call` | Appends every user prompt (secret-scrubbed) to an audit log. |
 | [`skill-router`](skill-router/) | `pre_llm_call` | Injects a matching skill's `router_directive` into the turn so a small local model actually follows it. |
 | [`tooling-steering`](tooling-steering/) | `pre_llm_call` | For HTTP-API / MCP-setup requests, injects a tool-discipline instruction so the agent runs the call itself. |
+| [`reply-language`](reply-language/) | `pre_llm_call` | In a Mattermost channel, tells the model which language to answer in, from the channel's team (team→language map in the profile config `reply_language.teams`). Unmapped teams and other platforms get nothing. |
 | [`mattermost-auto-vacate`](mattermost-auto-vacate/) | background thread (no hook) | On by default: the bot leaves a Mattermost channel once no human is left in it for a grace period. Only the bot's own membership is removed. |
 
 Every plugin except `kanban-harness` and `file-read` (which refuses what it cannot classify) is **fail-open**: any error in a hook returns `None` (allow), so a plugin bug
