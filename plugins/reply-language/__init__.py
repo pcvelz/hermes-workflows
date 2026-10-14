@@ -51,12 +51,17 @@ def _on_pre_llm_call(**kwargs):
             return None
         chat = _chat_id()
         if not chat:
+            logger.debug("reply-language: skipped, no chat id")
             return None
         if chat not in _TEAM_CACHE:
             _TEAM_CACHE[chat] = _team_of_channel(chat)
         language = _teams().get(_TEAM_CACHE[chat])
         text = _TEXT.get(str(language))
-        return {"context": text} if text else None
+        if not text:
+            logger.info("reply-language: skipped, no language for team %r", _TEAM_CACHE[chat] or None)
+            return None
+        logger.info("reply-language: injected hint team=%s language=%s", _TEAM_CACHE[chat], language)
+        return {"context": text}
     except Exception:
         logger.warning("reply-language: lookup failed; no language injected", exc_info=True)
         return None
