@@ -169,7 +169,10 @@ def browser_guard_config(eff: dict) -> dict | None:
     Keys: ``tools`` (regex of guarded tool names, default ``mcp__browser__.*``), ``network_tools`` (regex of
     the tools that count as network calls for spacing and caps; empty = none), ``min_interval_s``,
     ``max_per_hour``, ``max_per_day`` (0 or unset = no cap), ``deny_url_patterns`` (regexes on
-    ``tool_input.url``) and ``deny_tools`` (exact tool names, which must match ``tools``).
+    ``tool_input.url``) and ``deny_tools`` (exact tool names, which must match ``tools``),
+    ``ensure_command`` (shell command run fail-open before every guarded call — e.g. an
+    ensure-cdp-chrome.sh that stamps a use-marker and kickstarts an on-demand browser;
+    empty/unset = off) and ``ensure_timeout_s`` (bound for it, default 45).
 
     Never raises: the worker polls this through ``fingerprint``. An invalid value yields
     ``{"tools": ..., "misconfigured": <reason>}``, which makes the guard block every guarded call.
@@ -186,6 +189,11 @@ def browser_guard_config(eff: dict) -> dict | None:
         interval = float(raw.get("min_interval_s") or 0)
         if not (0 <= interval < float("inf")):
             raise ValueError("min_interval_s must be a finite number >= 0")
+        ensure = str(raw.get("ensure_command") or "").strip()
+        raw_timeout = raw.get("ensure_timeout_s")
+        ensure_timeout = float(raw_timeout) if raw_timeout is not None else 45.0
+        if not (0 < ensure_timeout <= 300):
+            raise ValueError("ensure_timeout_s must be a number in (0, 300]")
         deny_urls = _strings(raw.get("deny_url_patterns"))
         for pattern in deny_urls:
             re.compile(pattern)
@@ -201,6 +209,8 @@ def browser_guard_config(eff: dict) -> dict | None:
             "max_per_day": _cap(raw.get("max_per_day")),
             "deny_url_patterns": deny_urls,
             "deny_tools": deny_tools,
+            "ensure_command": ensure,
+            "ensure_timeout_s": ensure_timeout,
         }
     except (TypeError, ValueError, re.error) as exc:
         return {"tools": tools, "misconfigured": type(exc).__name__ + ": " + str(exc)}

@@ -8,6 +8,13 @@ Exit codes (the PreToolUse contract): 0 = allow, 2 = block; the reason goes to s
 Code shows it to the model. A network call is spaced from the previous one by sleeping the
 remainder of ``min_interval_s``. Any unexpected error fails closed (exit 2).
 
+Optional ``ensure_command`` (e.g. ``bash /path/to/ensure-cdp-chrome.sh``): run — fail-open, bounded
+by ``ensure_timeout_s`` (default 45 s) — for every guarded browser tool call, before the call is
+allowed. It covers both "count this as real browser use" (the command stamps a use-marker an idle
+watchdog trusts) and "make the browser reachable again" (the command kickstarts an on-demand
+browser the idle watchdog stopped), so a guarded tool never fails just because the browser was
+unloaded between uses.
+
 State: ``browser_guard_state.json`` next to this file, ``{"calls": [unix time of each network call]}``,
 written atomically and pruned to the last 24 h. A missing or corrupt state file counts as empty.
 """
@@ -16,6 +23,8 @@ import json
 import math
 import os
 import re
+import shlex
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -47,6 +56,29 @@ def save_state(path, calls):
     os.replace(tmp, path)
 
 
+def run_ensure(command, cfg):
+    """Best-effort run of the configured ensure_command. Never raises, never
+    blocks the tool: the browser call itself reports its own error when the
+    command could not bring the browser up."""
+    timeout = cfg.get("ensure_timeout_s")
+    try:
+        timeout = float(timeout) if timeout else 45.0
+        if not (0 < timeout <= 300):
+            timeout = 45.0
+    except (TypeError, ValueError):
+        timeout = 45.0
+    try:
+        subprocess.run(
+            shlex.split(command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=timeout,
+        )
+    except Exception:
+        pass
+
+
 def guard(data, cfg, state_path, now=time.time, sleep=time.sleep):
     """Decide one tool call. Returns ``(exit_code, stderr_reason)``; sleeps for interval spacing."""
     if cfg.get("misconfigured"):
@@ -66,6 +98,13 @@ def guard(data, cfg, state_path, now=time.time, sleep=time.sleep):
 
     if not re.fullmatch(cfg.get("tools") or "", name):
         return 0, ""
+
+    # Real browser tool call: give the host a chance to count it as use and to
+    # bring the browser back up after an idle unload. Fail-open by design.
+    ensure = cfg.get("ensure_command")
+    if isinstance(ensure, str) and ensure.strip():
+        run_ensure(ensure.strip(), cfg)
+
     network = cfg.get("network_tools") or ""
     if not network or not re.fullmatch(network, name):
         return 0, ""

@@ -206,6 +206,61 @@ class GuardScriptTests(unittest.TestCase):
         self.assertEqual(code, BLOCK)
         self.assertTrue(msg)
 
+    def recorder(self):
+        """A stand-in ensure_command: a shell script appending a line to its $1."""
+        out = self.tmp / "ensure-ran.txt"
+        script = self.tmp / "recorder.sh"
+        script.write_text('#!/bin/sh\nprintf "ran\\n" >> "$1"\n', encoding="utf-8")
+        script.chmod(0o755)
+        return f"{script} {out}", out
+
+    def test_ensure_command_runs_for_guarded_network_call(self):
+        clock = Clock(1000)
+        cmd, out = self.recorder()
+        code, _ = self.run_guard(call(NET, url="https://a.example/"), guard_cfg(ensure_command=cmd), clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.read_text(encoding="utf-8").splitlines(), ["ran"])
+
+    def test_ensure_command_runs_for_non_network_guarded_tool(self):
+        """Snapshots/scrolls do not navigate, but after an idle unload they
+        need the browser back up just as much — ensure runs for them too."""
+        clock = Clock(1000)
+        cmd, out = self.recorder()
+        code, _ = self.run_guard(call(SNAP), guard_cfg(ensure_command=cmd), clock)
+        self.assertEqual(code, 0)
+        self.assertEqual(out.read_text(encoding="utf-8").splitlines(), ["ran"])
+
+    def test_ensure_command_not_run_for_unguarded_tool(self):
+        clock = Clock(1000)
+        cmd, out = self.recorder()
+        code, _ = self.run_guard(call("Bash", command="ls"), guard_cfg(ensure_command=cmd), clock)
+        self.assertEqual(code, 0)
+        self.assertFalse(out.exists())
+
+    def test_ensure_command_not_run_when_call_is_blocked(self):
+        clock = Clock(1000)
+        cmd, out = self.recorder()
+        cfg = guard_cfg(ensure_command=cmd, deny_url_patterns=["mode=map"])
+        code, _ = self.run_guard(call(NET, url="https://a.example/?mode=map"), cfg, clock)
+        self.assertEqual(code, BLOCK)
+        self.assertFalse(out.exists())
+
+    def test_ensure_command_not_run_when_guard_is_misconfigured(self):
+        clock = Clock(0)
+        cmd, out = self.recorder()
+        code, _ = self.run_guard(
+            call(NET, url="u"),
+            {"tools": "mcp__browser__.*", "misconfigured": "bad", "ensure_command": cmd},
+            clock,
+        )
+        self.assertEqual(code, BLOCK)
+        self.assertFalse(out.exists())
+
+    def test_ensure_command_failure_still_allows_the_call(self):
+        clock = Clock(1000)
+        code, msg = self.run_guard(call(NET, url="https://a.example/"), guard_cfg(ensure_command="/nonexistent/ensure.sh"), clock)
+        self.assertEqual((code, msg), (0, ""))
+
 
 class GuardScriptSubprocessTests(unittest.TestCase):
     """The exit-code and stderr contract Claude Code's PreToolUse hook sees."""
@@ -339,6 +394,25 @@ class PrepareDirGuardTests(unittest.TestCase):
         without = copy.deepcopy(self.cfg)
         self.cfg["browser_guard"] = {}
         self.assertEqual(session.fingerprint(self.cfg, CID), session.fingerprint(without, CID))
+
+    def test_config_file_written_contains_ensure_command(self):
+        self.cfg["browser_guard"] = {"max_per_hour": 120, "ensure_command": "bash /opt/hermes/ensure-cdp-chrome.sh"}
+        d = session.prepare_dir(self.cfg, CID)
+        written = json.loads((d / "browser_guard.json").read_text(encoding="utf-8"))
+        self.assertEqual(written["ensure_command"], "bash /opt/hermes/ensure-cdp-chrome.sh")
+        self.assertEqual(written["ensure_timeout_s"], 45.0)
+        # absent by default: the guard stays inert for channels without it
+        self.cfg["browser_guard"] = {"max_per_hour": 120}
+        d = session.prepare_dir(self.cfg, CID)
+        written = json.loads((d / "browser_guard.json").read_text(encoding="utf-8"))
+        self.assertEqual(written["ensure_command"], "")
+        self.assertEqual(written["ensure_timeout_s"], 45.0)
+
+    def test_invalid_ensure_timeout_writes_misconfigured_marker(self):
+        self.cfg["browser_guard"] = {"ensure_command": "true", "ensure_timeout_s": 0}
+        d = session.prepare_dir(self.cfg, CID)
+        written = json.loads((d / "browser_guard.json").read_text(encoding="utf-8"))
+        self.assertIn("misconfigured", written)
 
 
 if __name__ == "__main__":
