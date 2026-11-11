@@ -7,10 +7,14 @@
 # ensure-cdp-chrome.sh (launchctl kickstart). This script also owns the idle
 # stop: Chrome runs as a child and a watchdog kills it, then exits 0, once
 #   - the CDP target set (ids + urls) has not changed for CDP_IDLE_SECONDS, and
-#   - $CDP_USE_MARKER (touched by ensure-cdp-chrome.sh on every use) is older
-#     than CDP_IDLE_SECONDS.
+#   - $CDP_USE_MARKER (touched by ensure-cdp-chrome.sh on every REAL use) is
+#     older than CDP_IDLE_SECONDS. This script never touches the marker itself:
+#     a start is not a use, so a scheduled one-shot consumer does not hold the
+#     browser up for the whole idle window. A missing marker counts from the start.
 # A parked tab therefore does not keep it alive forever; a blank-only browser
 # is trivially "unchanged". Unreadable endpoint = treated as in use (bias).
+# SIGTERM (a consumer's release: `launchctl kill SIGTERM gui/<uid>/<label>`)
+# stops Chrome at once and exits 0.
 #
 # Runs from a COPY in $HERMES_HOME/launchd-bin (installed by
 # scripts/install-services.py): launchd may not execute files under ~/Documents.
@@ -20,11 +24,14 @@ PORT="${CDP_PORT:-9333}"
 IDLE="${CDP_IDLE_SECONDS:-900}"
 POLL="${CDP_POLL_SECONDS:-30}"
 MARKER="${CDP_USE_MARKER:-$HOME/.hermes/state/cdp-chrome-last-use}"
-CACHE="$HOME/Library/Caches/ms-playwright"
+CACHE="${CDP_CACHE_DIR:-$HOME/Library/Caches/ms-playwright}"
 
-BIN=$(ls -d "$CACHE"/chromium-*/chrome-mac-arm64/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing" 2>/dev/null | sort -V | tail -1)
+# The lookup must not kill the script under `set -o pipefail` when no
+# chromium-* dir matches (ls exits 1, empty pipeline): fall through to the
+# explicit error line below instead of dying silently.
+BIN=$( { ls -d "$CACHE"/chromium-*/chrome-mac-arm64/"Google Chrome for Testing.app"/Contents/MacOS/"Google Chrome for Testing" 2>/dev/null || true; } | sort -V | tail -1 )
 if [[ -z "$BIN" ]]; then
-    echo "no Playwright chromium found under $CACHE; run: npx playwright install chromium" >&2
+    echo "$(date '+%F %T') ERROR: no Playwright chromium binary under $CACHE — restore it with: npx playwright install chromium" >&2
     exit 1
 fi
 
@@ -36,8 +43,7 @@ if [[ ! "$MAJOR" =~ ^[0-9]+$ ]]; then
 fi
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${MAJOR}.0.0.0 Safari/537.36"
 
-mkdir -p "$(dirname "$MARKER")"
-touch "$MARKER"
+STARTED=$(date +%s)
 
 "$BIN" \
     --headless=new \
@@ -67,7 +73,8 @@ while kill -0 "$CHROME" 2>/dev/null; do
         sig_prev="$sig"
         sig_since=$now
     fi
-    used=$(stat -f %m "$MARKER" 2>/dev/null || echo "$now")
+    used=$(stat -f %m "$MARKER" 2>/dev/null || echo "$STARTED")
+    (( used < STARTED )) && used=$STARTED  # an older use cannot predate this browser
     if (( now - sig_since >= IDLE && now - used >= IDLE )); then
         echo "$(date '+%F %T') idle for ${IDLE}s, stopping Chrome (pid $CHROME)"
         kill "$CHROME" 2>/dev/null || true
