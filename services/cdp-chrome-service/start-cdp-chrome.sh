@@ -14,7 +14,10 @@
 # A parked tab therefore does not keep it alive forever; a blank-only browser
 # is trivially "unchanged". Unreadable endpoint = treated as in use (bias).
 # SIGTERM (a consumer's release: `launchctl kill SIGTERM gui/<uid>/<label>`)
-# stops Chrome at once and exits 0.
+# stops Chrome and exits 0. Both stop paths (release and idle) go through
+# stop_chrome: SIGTERM, up to CDP_STOP_GRACE_SECONDS (default 10) for Chrome to
+# exit, then SIGKILL on Chrome and its children, so a Chrome that ignores SIGTERM
+# can never leave this script (and the launchd job) hanging in `wait`.
 #
 # Runs from a COPY in $HERMES_HOME/launchd-bin (installed by
 # scripts/install-services.py): launchd may not execute files under ~/Documents.
@@ -25,6 +28,7 @@ IDLE="${CDP_IDLE_SECONDS:-900}"
 POLL="${CDP_POLL_SECONDS:-30}"
 MARKER="${CDP_USE_MARKER:-$HOME/.hermes/state/cdp-chrome-last-use}"
 CACHE="${CDP_CACHE_DIR:-$HOME/Library/Caches/ms-playwright}"
+GRACE="${CDP_STOP_GRACE_SECONDS:-10}"
 
 # The lookup must not kill the script under `set -o pipefail` when no
 # chromium-* dir matches (ls exits 1, empty pipeline): fall through to the
@@ -55,7 +59,29 @@ STARTED=$(date +%s)
     --remote-debugging-address=127.0.0.1 \
     about:blank &
 CHROME=$!
-trap 'kill "$CHROME" 2>/dev/null || true; wait "$CHROME" 2>/dev/null || true; exit 0' TERM INT
+echo "$(date '+%F %T') started Chrome pid $CHROME on port $PORT"
+
+# SIGTERM, wait up to $GRACE s, then SIGKILL Chrome and its children. The final
+# `wait` cannot hang: the pid is dead by then.
+STOPPING=0
+stop_chrome() {
+    (( STOPPING )) && return 0   # a second signal during the grace period must not re-enter
+    STOPPING=1
+    trap '' TERM INT
+    kill "$CHROME" 2>/dev/null || true
+    local i
+    for ((i = 0; i < GRACE * 5; i++)); do
+        kill -0 "$CHROME" 2>/dev/null || break
+        sleep 0.2
+    done
+    if kill -0 "$CHROME" 2>/dev/null; then
+        echo "$(date '+%F %T') Chrome pid $CHROME ignored SIGTERM for ${GRACE}s, sending SIGKILL"
+        pkill -KILL -P "$CHROME" 2>/dev/null || true
+        kill -KILL "$CHROME" 2>/dev/null || true
+    fi
+    wait "$CHROME" 2>/dev/null || true
+}
+trap 'stop_chrome; exit 0' TERM INT
 
 sig_prev=""
 sig_since=$(date +%s)
@@ -77,8 +103,7 @@ while kill -0 "$CHROME" 2>/dev/null; do
     (( used < STARTED )) && used=$STARTED  # an older use cannot predate this browser
     if (( now - sig_since >= IDLE && now - used >= IDLE )); then
         echo "$(date '+%F %T') idle for ${IDLE}s, stopping Chrome (pid $CHROME)"
-        kill "$CHROME" 2>/dev/null || true
-        wait "$CHROME" 2>/dev/null || true
+        stop_chrome
         exit 0
     fi
 done

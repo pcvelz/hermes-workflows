@@ -46,3 +46,27 @@ launchctl print gui/$(id -u)/<label-prefix>.cdp-chrome-service | grep -E 'state|
 
 Headless Chrome is detectable by sophisticated anti-bot systems. That is a
 known limit of this approach, not a bug in the service.
+
+## Stop contract
+
+Both stop paths (a consumer's release `launchctl kill SIGTERM gui/<uid>/<label>`
+and the idle watchdog) run `stop_chrome`: SIGTERM to Chrome, wait up to
+`CDP_STOP_GRACE_SECONDS` (default 10), then SIGKILL Chrome and its children.
+The script then exits 0; a Chrome that ignores SIGTERM can no longer keep the
+launchd job "running". The escalation logs
+`Chrome pid N ignored SIGTERM for Ns, sending SIGKILL`; each start logs
+`started Chrome pid N on port P`.
+
+Consumers start the browser with `ensure-cdp-chrome.sh` (or a launchctl
+kickstart of their own). Who releases it:
+
+- a scheduled one-shot checker: after each run, unless the use-marker is
+  fresher than the idle window;
+- a login helper: at the end of its run, only when that run started the browser;
+- everyone else: the idle watchdog.
+
+Check for a survivor (should print nothing when the service is stopped):
+
+```bash
+pgrep -fl 'remote-debugging-port=9333'
+```
